@@ -10,6 +10,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .streamlit/secrets.toml
+logs/
 data/*
 !data/.gitkeep
 *.sqlite3
