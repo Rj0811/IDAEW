@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -27,36 +28,62 @@ def live_market_panel():
         st.info("Market database not found. Start the collector with: python run_live_feed.py")
         return
     with sqlite3.connect(DB_PATH, timeout=5) as con:
-        if not table_exists(con, "live_bars"):
-            st.info("Live candle table not initialized. Start: python run_live_feed.py")
-            return
-        bars = pd.read_sql_query(
-            """SELECT token, exchange_type, timeframe, bar_time, open, high, low, close,
-                      volume, tick_count FROM live_bars ORDER BY bar_time DESC LIMIT 1000""", con)
-    if bars.empty:
-        st.warning("No live ticks have been persisted yet.")
-        return
-    bars["bar_time"] = pd.to_datetime(bars["bar_time"], errors="coerce")
-    bars = bars.dropna(subset=["bar_time"])
-    if bars.empty:
-        st.warning("No valid exchange timestamps in live candle data.")
-        return
-    latest = bars.sort_values("bar_time").iloc[-1]
-    stamp = latest["bar_time"]
-    stamp = stamp.tz_localize(IST) if stamp.tzinfo is None else stamp.tz_convert(IST)
-    age = max(0, int((datetime.now(IST) - stamp.to_pydatetime()).total_seconds()))
-    a, b, c = st.columns(3)
-    a.metric("Latest exchange candle", stamp.strftime("%d %b %Y, %H:%M:%S IST"))
-    b.metric("Latest close", f"₹{float(latest['close']):,.2f}")
-    c.metric("Exchange data age", f"{age // 60}m {age % 60}s")
-    timeframe = st.selectbox("Live candle timeframe", ["1m", "5m"], index=1, key="live_tf")
-    view = bars[bars.timeframe == timeframe].sort_values("bar_time", ascending=False)
-    st.caption("Auto-refreshes every 5 seconds. Outside market hours, exchange timestamps remain at the last market update.")
-    st.dataframe(view, use_container_width=True, hide_index=True)
-    if not view.empty:
-        token = st.selectbox("Instrument token", view.token.drop_duplicates().tolist(), key="live_token")
-        chart = view[view.token == token].sort_values("bar_time").set_index("bar_time")
-        st.line_chart(chart[["close"]], use_container_width=True)
+        if table_exists(con, "live_bars"):
+            bars = pd.read_sql_query(
+                """SELECT token, exchange_type, timeframe, bar_time, open, high, low, close,
+                          volume, tick_count FROM live_bars ORDER BY bar_time DESC LIMIT 1000""", con)
+        else:
+            bars = pd.DataFrame()
+        has_depth = table_exists(con, "depth_snapshots")
+        if has_depth:
+            depths = pd.read_sql_query(
+                """SELECT d.* FROM depth_snapshots d
+                   INNER JOIN (SELECT token, MAX(id) AS latest_id FROM depth_snapshots GROUP BY token) x
+                   ON d.id=x.latest_id ORDER BY d.token""", con)
+        else:
+            depths = pd.DataFrame()
+
+    if not bars.empty:
+        bars["bar_time"] = pd.to_datetime(bars["bar_time"], errors="coerce")
+        bars = bars.dropna(subset=["bar_time"])
+        if not bars.empty:
+            latest = bars.sort_values("bar_time").iloc[-1]
+            stamp = latest["bar_time"]
+            stamp = stamp.tz_localize(IST) if stamp.tzinfo is None else stamp.tz_convert(IST)
+            age = max(0, int((datetime.now(IST) - stamp.to_pydatetime()).total_seconds()))
+            a, b, c = st.columns(3)
+            a.metric("Latest exchange candle", stamp.strftime("%d %b %Y, %H:%M:%S IST"))
+            b.metric("Latest close", f"₹{float(latest['close']):,.2f}")
+            c.metric("Exchange data age", f"{age // 60}m {age % 60}s")
+            timeframe = st.selectbox("Live candle timeframe", ["1m", "5m"], index=1, key="live_tf")
+            view = bars[bars.timeframe == timeframe].sort_values("bar_time", ascending=False)
+            st.dataframe(view, use_container_width=True, hide_index=True)
+            if not view.empty:
+                token = st.selectbox("Instrument token", view.token.drop_duplicates().tolist(), key="live_token")
+                chart = view[view.token == token].sort_values("bar_time").set_index("bar_time")
+                st.line_chart(chart[["close"]], use_container_width=True)
+    else:
+        st.info("No live candle data stored yet. For candles run: python run_live_feed.py")
+
+    st.subheader("NSE cash market depth (latest stored snapshots)")
+    if depths.empty:
+        st.info("No depth snapshots stored yet. Run: python run_live_feed.py --depth")
+    else:
+        depths["received_timestamp"] = pd.to_datetime(depths["received_timestamp"], errors="coerce")
+        token = st.selectbox("Depth instrument token", depths.token.tolist(), key="depth_token")
+        selected = depths[depths.token == token].iloc[0]
+        buys = pd.DataFrame(json.loads(selected["buy_levels_json"]))
+        sells = pd.DataFrame(json.loads(selected["sell_levels_json"]))
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**Bid levels**")
+            st.dataframe(buys, use_container_width=True, hide_index=True)
+        with right:
+            st.markdown("**Ask levels**")
+            st.dataframe(sells, use_container_width=True, hide_index=True)
+        stamp = selected["received_timestamp"]
+        st.caption(f"Received: {stamp} · Exchange timestamp: {selected['exchange_timestamp'] or 'not supplied'} · Quality: {selected['quality_flags'] or 'OK'}")
+        st.caption("Depth is a snapshot of displayed liquidity, not trade flow or a sequenced order-event feed.")
 
 
 live_market_panel()
