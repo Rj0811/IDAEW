@@ -87,16 +87,21 @@ def rolling_depth_analysis(records, window_minutes):
     latest = window[-1][1]
     result["latest_imbalance_5"] = latest["imbalance_5"]
     result["latest_imbalance_20"] = latest["imbalance_20"]
-    result["divergence"] = (
-        "Near bid-heavy / deeper ask-heavy"
-        if latest["imbalance_5"] >= 15 and latest["imbalance_20"] <= -10 else
-        "Near ask-heavy / deeper bid-heavy"
-        if latest["imbalance_5"] <= -15 and latest["imbalance_20"] >= 10 else
-        "No strong near/deep disagreement"
+    divergence_labels = []
+    for _, metrics in window:
+        if metrics["imbalance_5"] >= 15 and metrics["imbalance_20"] <= -10:
+            divergence_labels.append("Near bid-heavy / deeper ask-heavy")
+        elif metrics["imbalance_5"] <= -15 and metrics["imbalance_20"] >= 10:
+            divergence_labels.append("Near ask-heavy / deeper bid-heavy")
+        else:
+            divergence_labels.append("No strong near/deep disagreement")
+    result["divergence"] = divergence_labels[-1]
+    result["divergence_samples"] = sum(
+        label != "No strong near/deep disagreement" for label in divergence_labels
     )
     result["alert"] = (
         "Near/deep liquidity divergence"
-        if len(window) >= 3 and result["divergence"] != "No strong near/deep disagreement"
+        if result["divergence_samples"] >= 3
         else "No divergence alert"
     )
     return result
