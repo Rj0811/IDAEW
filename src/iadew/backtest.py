@@ -363,6 +363,7 @@ def run_historical_backtest(days: int = 90, timeframe: str = "FIVE_MINUTE",
             run_id, datetime.now(IST).isoformat(timespec="seconds"), days, timeframe,
             ",".join(styles), len(universe), summary["trade_count"], summary["net_pnl"],
             summary["win_rate"], summary["profit_factor"], summary["max_drawdown"],
-            "Shared-capital cash-notional portfolio; risk-sized positions; futures rounded to lot size and admitted only if full notional fits (not margin simulation); OHLCV-only; next-bar-open; stop-first; indicative costs/slippage."
+            "Shared-capital cash-notional portfolio; risk-sized positions; futures rounded to lot size and admitted only if full notional fits (not margin simulation); OHLCV-only; next-bar-open; stop-first; indicative costs/slippage.",
+            summary["ending_equity"]
         ))
     return run_id, summary
