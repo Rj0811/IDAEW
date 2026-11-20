@@ -108,7 +108,7 @@ def simulate_instrument(frame: pd.DataFrame, symbol: str, segment: str, style: s
                         capital: float = 500_000, risk_pct: float = 0.005,
                         stop_atr: float = 1.5, reward_risk: float = 2.0,
                         cost_bps_per_side: float = 3.0, slippage_bps: float = 1.0,
-                        max_hold_bars: int | None = None) -> list[dict]:
+                        max_hold_bars: int | None = None, lot_size: int = 1) -> list[dict]:
     x = prepare_bars(frame)
     if len(x) < 40:
         return []
@@ -133,9 +133,7 @@ def simulate_instrument(frame: pd.DataFrame, symbol: str, segment: str, style: s
         risk_per_unit = float(atr) * stop_atr
         stop = entry - signal * risk_per_unit
         target = entry + signal * risk_per_unit * reward_risk
-        risk_cash = capital * risk_pct
-        qty = max(1, int(risk_cash / risk_per_unit))
-        qty = min(qty, max(1, int(capital / max(entry, 0.01))))
+        qty = 1  # Candidate only; final quantity is allocated portfolio-wide below.
         last_i = min(len(x) - 1, entry_i + (max_hold_bars or (12 if style == "intraday" else 60)))
         exit_i, exit_raw, reason = last_i, float(x.iloc[last_i]["close"]), "TIME"
         for j in range(entry_i, last_i + 1):
@@ -152,8 +150,8 @@ def simulate_instrument(frame: pd.DataFrame, symbol: str, segment: str, style: s
                 exit_i, exit_raw, reason = j, target, "TARGET"
                 break
         exit_price = exit_raw * (1 - slip if signal == 1 else 1 + slip)
-        gross = (exit_price - entry) * qty * signal
-        turnover = (abs(entry) + abs(exit_price)) * qty
+        gross = (exit_price - entry) * signal
+        turnover = abs(entry) + abs(exit_price)
         costs = turnover * (cost_bps_per_side / 10000)
         pnl = gross - costs
         trades.append({
@@ -163,11 +161,92 @@ def simulate_instrument(frame: pd.DataFrame, symbol: str, segment: str, style: s
             "exit": round(exit_price, 4), "stop": round(stop, 4),
             "target": round(target, 4), "quantity": qty, "exit_reason": reason,
             "gross_pnl": round(gross, 2), "costs": round(costs, 2),
-            "net_pnl": round(pnl, 2), "risk_cash": round(risk_cash, 2),
+            "net_pnl": round(pnl, 4), "risk_cash": 0.0,
+            "risk_budget": 0.0, "actual_risk": 0.0,
+            "allocated_capital": 0.0, "lot_size": max(1, int(lot_size)),
         })
         i = max(i + 1, exit_i + 1)
     return trades
 
+
+
+def allocate_portfolio(candidates: list[dict], capital: float, risk_pct: float) -> list[dict]:
+    """Allocate one shared cash-notional portfolio across all instruments/styles.
+
+    Positions reserve full notional (not broker margin). Futures are rounded to
+    exchange lot multiples and are admitted only when full contract notional fits
+    available capital. This is deliberately conservative, not margin simulation.
+    """
+    ordered = sorted(candidates, key=lambda t: (t["entry_time"], t["symbol"], t["style"]))
+    equity = float(capital)
+    active = []
+    accepted = []
+    equity_points = [(None, equity)]
+    for candidate in ordered:
+        entry_time = pd.Timestamp(candidate["entry_time"])
+        still_open = []
+        for pos in active:
+            if pd.Timestamp(pos["exit_time"]) <= entry_time:
+                equity += pos["net_pnl"]
+                equity_points.append((pos["exit_time"], equity))
+            else:
+                still_open.append(pos)
+        active = still_open
+        reserved = sum(p["allocated_capital"] for p in active)
+        available = max(0.0, equity - reserved)
+        entry = float(candidate["entry"])
+        stop_distance = abs(entry - float(candidate["stop"]))
+        lot = max(1, int(candidate.get("lot_size", 1)))
+        if entry <= 0 or stop_distance <= 0 or available <= 0:
+            continue
+        risk_budget = max(0.0, equity * risk_pct)
+        qty_by_risk = int(risk_budget / stop_distance)
+        qty_by_capital = int(available / entry)
+        raw_qty = min(qty_by_risk, qty_by_capital)
+        qty = (raw_qty // lot) * lot
+        if qty < lot:
+            continue
+        unit_gross = (float(candidate["exit"]) - entry) * (1 if candidate["direction"] == "LONG" else -1)
+        unit_turnover = abs(entry) + abs(float(candidate["exit"]))
+        unit_cost = unit_turnover * (float(candidate["costs"]) / max(unit_turnover, 1e-12))
+        gross = unit_gross * qty
+        costs = unit_cost * qty
+        net = gross - costs
+        actual_risk = stop_distance * qty
+        allocated = entry * qty
+        trade = dict(candidate)
+        trade.update({
+            "quantity": qty, "gross_pnl": round(gross, 2), "costs": round(costs, 2),
+            "net_pnl": round(net, 2), "risk_budget": round(risk_budget, 2),
+            "actual_risk": round(actual_risk, 2), "risk_cash": round(actual_risk, 2),
+            "allocated_capital": round(allocated, 2),
+        })
+        accepted.append(trade)
+        active.append(trade)
+    for pos in sorted(active, key=lambda p: p["exit_time"]):
+        equity += pos["net_pnl"]
+        equity_points.append((pos["exit_time"], equity))
+    return accepted
+
+
+def portfolio_metrics(trades: list[dict], initial_capital: float) -> dict:
+    ordered = sorted(trades, key=lambda t: t["exit_time"])
+    if not ordered:
+        return {"trade_count": 0, "net_pnl": 0.0, "win_rate": 0.0,
+                "profit_factor": 0.0, "max_drawdown": 0.0,
+                "ending_equity": round(initial_capital, 2)}
+    pnl = pd.Series([float(t["net_pnl"]) for t in ordered])
+    gains, losses = pnl[pnl > 0].sum(), -pnl[pnl < 0].sum()
+    equity = initial_capital + pnl.cumsum()
+    peak = pd.concat([pd.Series([initial_capital]), equity], ignore_index=True).cummax()
+    dd = pd.concat([pd.Series([initial_capital]), equity], ignore_index=True) - peak
+    return {
+        "trade_count": int(len(pnl)), "net_pnl": round(float(pnl.sum()), 2),
+        "win_rate": round(float((pnl > 0).mean() * 100), 2),
+        "profit_factor": round(float(gains / losses), 3) if losses else (999.0 if gains else 0.0),
+        "max_drawdown": round(float(dd.min()), 2),
+        "ending_equity": round(float(initial_capital + pnl.sum()), 2),
+    }
 
 def init_replay_db(db_path: Path):
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +261,13 @@ def init_replay_db(db_path: Path):
             symbol TEXT, segment TEXT, style TEXT, direction TEXT,
             entry_time TEXT, exit_time TEXT, entry REAL, exit REAL,
             stop REAL, target REAL, quantity INTEGER, exit_reason TEXT,
-            gross_pnl REAL, costs REAL, net_pnl REAL, risk_cash REAL)""")
+            gross_pnl REAL, costs REAL, net_pnl REAL, risk_cash REAL,
+            risk_budget REAL DEFAULT 0, actual_risk REAL DEFAULT 0,
+            allocated_capital REAL DEFAULT 0, lot_size INTEGER DEFAULT 1)""")
+        existing = {row[1] for row in con.execute("PRAGMA table_info(backtest_trades)")}
+        for name, definition in [("risk_budget", "REAL DEFAULT 0"), ("actual_risk", "REAL DEFAULT 0"), ("allocated_capital", "REAL DEFAULT 0"), ("lot_size", "INTEGER DEFAULT 1")]:
+            if name not in existing:
+                con.execute(f"ALTER TABLE backtest_trades ADD COLUMN {name} {definition}")
         con.execute("""CREATE TABLE IF NOT EXISTS replay_bars (
             run_id TEXT NOT NULL, symbol TEXT, segment TEXT, token TEXT,
             bar_time TEXT, open REAL, high REAL, low REAL, close REAL, volume REAL,
@@ -219,14 +304,14 @@ def run_historical_backtest(days: int = 90, timeframe: str = "FIVE_MINUTE",
     for symbol in (symbols or settings.watchlist):
         row = cash_instrument(master, symbol)
         if row is not None:
-            universe.append((str(row["token"]), symbol, "NSE", "NSE_CASH"))
+            universe.append((str(row["token"]), symbol, "NSE", "NSE_CASH", 1))
     for name in ("NIFTY", "BANKNIFTY"):
         row = front_index_future(master, name)
         if row is not None:
-            universe.append((str(row["token"]), str(row["symbol"]), "NFO", "INDEX_FUT"))
-    all_trades = []
+            universe.append((str(row["token"]), str(row["symbol"]), "NFO", "INDEX_FUT", max(1, int(float(row.get("lotsize", 1) or 1)))))
+    candidates = []
     bars_to_store = []
-    for token, symbol, exchange, segment in universe:
+    for token, symbol, exchange, segment, lot_size in universe:
         print(f"Downloading {symbol} ({exchange})...", flush=True)
         try:
             frame = fetch_history_days(api, token, exchange, calendar_days, timeframe)
@@ -247,20 +332,25 @@ def run_historical_backtest(days: int = 90, timeframe: str = "FIVE_MINUTE",
         for style in styles:
             trades = simulate_instrument(frame, symbol, segment, style, capital=capital,
                                          risk_pct=risk_pct, cost_bps_per_side=cost_bps_per_side,
-                                         slippage_bps=slippage_bps)
-            all_trades.extend(trades)
+                                         slippage_bps=slippage_bps, lot_size=lot_size)
+            for trade in trades:
+                trade["lot_size"] = lot_size
+                trade["costs"] = round((abs(trade["entry"]) + abs(trade["exit"])) * (cost_bps_per_side / 10000), 6)
+                candidates.append(trade)
         time.sleep(0.35)
-    summary = metrics(all_trades)
+    all_trades = allocate_portfolio(candidates, capital, risk_pct)
+    summary = portfolio_metrics(all_trades, capital)
     init_replay_db(settings.db_path)
     with sqlite3.connect(settings.db_path) as con:
         con.executemany("INSERT OR REPLACE INTO replay_bars VALUES (?,?,?,?,?,?,?,?,?,?)", bars_to_store)
         con.executemany("""INSERT INTO backtest_trades
             (run_id,symbol,segment,style,direction,entry_time,exit_time,entry,exit,stop,target,
-             quantity,exit_reason,gross_pnl,costs,net_pnl,risk_cash)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [
+             quantity,exit_reason,gross_pnl,costs,net_pnl,risk_cash,risk_budget,actual_risk,allocated_capital,lot_size)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [
             (run_id, t["symbol"], t["segment"], t["style"], t["direction"], t["entry_time"],
              t["exit_time"], t["entry"], t["exit"], t["stop"], t["target"], t["quantity"],
-             t["exit_reason"], t["gross_pnl"], t["costs"], t["net_pnl"], t["risk_cash"])
+             t["exit_reason"], t["gross_pnl"], t["costs"], t["net_pnl"], t["risk_cash"],
+             t["risk_budget"], t["actual_risk"], t["allocated_capital"], t["lot_size"])
             for t in all_trades
         ])
         con.execute("""INSERT INTO backtest_runs
@@ -270,6 +360,6 @@ def run_historical_backtest(days: int = 90, timeframe: str = "FIVE_MINUTE",
             run_id, datetime.now(IST).isoformat(timespec="seconds"), days, timeframe,
             ",".join(styles), len(universe), summary["trade_count"], summary["net_pnl"],
             summary["win_rate"], summary["profit_factor"], summary["max_drawdown"],
-            "OHLCV-only heuristic replay; next-bar-open fills; conservative stop-first intrabar rule; indicative costs/slippage."
+            "Shared-capital cash-notional portfolio; risk-sized positions; futures rounded to lot size and admitted only if full notional fits (not margin simulation); OHLCV-only; next-bar-open; stop-first; indicative costs/slippage."
         ))
     return run_id, summary
