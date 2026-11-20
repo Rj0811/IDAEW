@@ -1,13 +1,14 @@
 # Operations and security
 
-- Keep .env, tokens, broker statements and personal trade logs out of Git.
-- Use least-privilege app permissions where available.
-- Never send broker credentials through Telegram.
-- Use HTTPS and authentication for webhook receivers.
+- Keep .env, Angel One API key, client code, PIN, TOTP secret, JWT, refresh token and feed token out of Git.
+- Treat the TOTP secret as equivalent to a password; store it only on the local workstation.
+- Never send broker credentials or OTPs through Telegram or chat.
+- Keep SDK logs under the ignored logs/ directory and inspect them for accidental sensitive data before sharing.
+- Use HTTPS and authentication for any future webhook receiver.
 - Validate webhook tokens/signatures and rate-limit endpoints.
-- Redact secrets from logs.
+- Redact secrets from logs and screenshots.
 - Keep local backups encrypted and access-controlled.
 - Verify market-data licensing before storing, deriving or redistributing data.
 - Do not scrape or reverse engineer charting platforms.
-- Keep all orders manual in v1; no order-placement endpoints are included.
+- Keep all orders manual in v1; no order-placement endpoints are called by IADEW.
 - Before adding automated order routing, review current SEBI, exchange, broker and API requirements.
