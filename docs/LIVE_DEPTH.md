@@ -57,3 +57,21 @@ is labelled as reduced/absent displayed liquidity; it is not proof of cancellati
 because an execution, repricing, feed sampling gap or other event may explain it.
 
 Unit tests: `python -m unittest tests.test_depth_analytics`.
+
+
+## Rolling pressure monitor
+
+The dashboard now evaluates the latest stored snapshots over rolling 1-minute and
+5-minute windows. For top 5, 10 and 20 levels it reports mean imbalance and the
+share of samples with strong bid dominance (imbalance >= +15%) or ask dominance
+(imbalance <= -15%). It also flags near/deep disagreement when top-5 imbalance
+is at least +15% while top-20 is at most -10%, or the inverse.
+
+A divergence observation is surfaced only after at least three snapshots are
+available in the selected rolling window. It is an observation alert only; it
+does not enter scanner scores, recommend a trade, or place orders. Snapshot
+frequency and missing packets affect the persistence estimate. The rolling
+window uses local received timestamps because the depth packet may not supply
+an exchange timestamp.
+
+Tests: `python -m unittest discover -s tests`.
