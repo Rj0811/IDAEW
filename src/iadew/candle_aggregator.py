@@ -1,8 +1,7 @@
 """Tick-to-candle aggregation for Angel One SmartAPI quote packets.
 
-Prices are normalized from Angel One's paise representation to rupees.
-Volume is derived from changes in cumulative day volume; the first packet for
-a token establishes a baseline and is not counted as interval volume.
+Angel One prices are in paise and are normalized to rupees. Day volume is
+cumulative; each packet contributes only the increase since the prior packet.
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -15,13 +14,13 @@ IST = ZoneInfo("Asia/Kolkata")
 class TickCandleAggregator:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
-        self.current = {}  # (token, timeframe, bucket_start) -> candle
+        self.current = {}
         self.last_cum_volume = {}
         self._init_db()
 
     def _connect(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_path, timeout=10)
 
     def _init_db(self):
         with self._connect() as con:
@@ -60,10 +59,9 @@ class TickCandleAggregator:
                   high=excluded.high, low=excluded.low, close=excluded.close,
                   volume=excluded.volume, tick_count=excluded.tick_count
             """, (
-                token, candle["exchange_type"], timeframe,
-                bucket.isoformat(), candle["open"], candle["high"],
-                candle["low"], candle["close"], candle["volume"],
-                candle["tick_count"],
+                token, candle["exchange_type"], timeframe, bucket.isoformat(),
+                candle["open"], candle["high"], candle["low"], candle["close"],
+                candle["volume"], candle["tick_count"],
             ))
 
     def _apply(self, token, exchange_type, timeframe, bucket, price, volume_delta):
@@ -80,6 +78,9 @@ class TickCandleAggregator:
         candle["close"] = price
         candle["volume"] += max(0, int(volume_delta))
         candle["tick_count"] += 1
+        # Persist the still-forming candle on every tick so the dashboard can
+        # read it without waiting for the next interval or Ctrl+C.
+        self._save(key, candle)
 
     def on_tick(self, packet):
         if not isinstance(packet, dict):
@@ -102,10 +103,13 @@ class TickCandleAggregator:
                 previous = self.last_cum_volume.get(token)
                 if previous is not None and cumulative >= previous:
                     delta = cumulative - previous
+                elif previous is not None and cumulative < previous:
+                    # Day-volume reset or feed reset: establish a new baseline.
+                    delta = 0
                 self.last_cum_volume[token] = cumulative
+
             for timeframe, minutes in (("1m", 1), ("5m", 5)):
                 bucket = self._bucket(ts, minutes)
-                # Flush older in-memory bars for this token/timeframe.
                 for key in list(self.current):
                     old_token, old_tf, old_bucket = key
                     if old_token == token and old_tf == timeframe and old_bucket < bucket:
@@ -115,6 +119,5 @@ class TickCandleAggregator:
             return
 
     def flush(self):
-        """Persist currently forming bars too; they remain marked by timeframe/time."""
         for key, candle in list(self.current.items()):
             self._save(key, candle)
