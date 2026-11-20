@@ -20,6 +20,27 @@
 - Build completed 1m/5m bars from ticks and reconcile with historical bars.
 - Add data freshness, gap and duplicate checks.
 
+## Phase 2A — Live depth operational validation (PENDING: Monday, 23 November 2026)
+
+- [ ] Run `python run_live_feed.py --depth` during the market session.
+- [ ] Confirm Depth20 snapshots update across the configured NSE cash watchlist.
+- [ ] Confirm matching quote packets produce current 1-minute/5-minute bars in `live_bars`.
+- [ ] Confirm dashboard rolling 1-minute/5-minute pressure and near/deep divergence windows populate.
+- [ ] Inspect timestamps, packet gaps, stale data, token coverage, reconnects and collector errors.
+- [ ] After multiple sessions, run `python run_depth_validation.py --days 5`; review sample size and the matched forward-return report.
+- [ ] Document findings and defects before promoting any depth feature into setup research.
+
+Exit gate: collection quality is understood, matching coverage is adequate, and limitations
+are documented. Depth imbalance remains observational; it is not a standalone entry signal.
+
+## Phase 2B — Qualify genuine order-flow data (NEXT WORKSTREAM)
+
+- [ ] Build a provider capability matrix for live and historical trade-level prints, aggressor-side classification, depth history, timestamps, instrument coverage, retention, API/export access, licensing and total cost.
+- [ ] Check GoCharting only through documented/export-permitted features for historical footprint/CVD access; do not scrape or reverse-engineer private endpoints.
+- [ ] Compare Angel One's documented feed capabilities with any external vendor claims; ask vendors to demonstrate sample records and classification methodology.
+- [ ] Do not purchase a new feed until a sample is validated and the required rights/costs are clear.
+- [ ] Keep true CVD/footprint marked unavailable until a qualifying trade-level source is selected and tested.
+
 ## Phase 3 — Execution analytics
 - Validate available trade-level data and licensing.
 - Add aggressor-side delta/CVD only with suitable trade prints.
