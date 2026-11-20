@@ -11,13 +11,14 @@ After authenticating with `python auth.py`, start:
 python run_live_feed.py --depth
 ```
 
-This run subscribes only to the NSE cash symbols in the configured watchlist.
-The official Angel One Python SDK currently validates Depth mode as exchange
-type 1 (NSE cash) and enforces a maximum of 50 tokens per depth subscription.
-It does not include the NFO index futures in this mode. Run the ordinary
-`python run_live_feed.py` separately when you need the existing quote/candle
-collector; do not run two collectors against the same WebSocket session unless
-your account's connection limits permit it.
+This mode uses one WebSocket session to subscribe to NSE cash Depth20 and Quote
+mode. Depth20 subscribes to the configured NSE cash watchlist; the official
+Angel One Python SDK validates Depth mode as exchange type 1 (NSE cash) and
+enforces a maximum of 50 tokens per depth subscription. NFO index futures are
+not included in the Depth20 subscription. Quote packets for the matching cash
+tokens are aggregated into `live_bars`; the collector also subscribes to the
+configured NFO/cash quote instruments for candle collection. The no-argument
+`python run_live_feed.py` remains quote-only mode.
 
 ## Storage
 
