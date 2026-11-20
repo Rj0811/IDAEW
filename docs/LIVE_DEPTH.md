@@ -75,3 +75,38 @@ window uses local received timestamps because the depth packet may not supply
 an exchange timestamp.
 
 Tests: `python -m unittest discover -s tests`.
+
+
+## Forward price validation
+
+Run the combined depth + quote collector during market hours:
+
+```powershell
+python run_live_feed.py --depth
+```
+
+In this mode, one WebSocket subscribes to NSE cash Depth20 and Quote mode.
+Quote packets are aggregated into 1m/5m candles in `live_bars`, while depth
+packets are appended to `depth_snapshots`. This provides same-instrument
+timestamps for descriptive evaluation. The existing no-argument collector
+continues to work as quote-only mode.
+
+After collecting several sessions:
+
+```powershell
+python run_depth_validation.py --days 5
+```
+
+The script exports matched observations and grouped summaries under `reports/`.
+It groups top-5/10/20 imbalance into ask-heavy, balanced and bid-heavy buckets,
+then measures 1m and 5m subsequent candle-close returns. It also compares
+near/deep divergence observations. Baseline and forward prices use the first
+available 1m candle at or after the snapshot/horizon; this is approximate
+because the stored bar timestamp labels the minute bucket, not the exact
+intraminute quote time.
+
+Interpretation limits:
+- Require adequate samples across multiple sessions; one day's results are noisy.
+- No spread, brokerage, slippage, queue position or executable fills are modeled.
+- Returns are association, not causation or a predictive edge.
+- No thresholds are fed into trade scoring or order execution.
