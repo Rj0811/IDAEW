@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from src.iadew.config import settings
+from src.iadew.depth_analytics import depth_metrics, liquidity_changes
 
 IST = ZoneInfo("Asia/Kolkata")
 DB_PATH = settings.db_path
@@ -65,26 +66,54 @@ def live_market_panel():
     else:
         st.info("No live candle data stored yet. For candles run: python run_live_feed.py")
 
-    st.subheader("NSE cash market depth (latest stored snapshots)")
+    st.subheader("NSE cash market depth analytics")
     if depths.empty:
         st.info("No depth snapshots stored yet. Run: python run_live_feed.py --depth")
     else:
         depths["received_timestamp"] = pd.to_datetime(depths["received_timestamp"], errors="coerce")
         token = st.selectbox("Depth instrument token", depths.token.tolist(), key="depth_token")
         selected = depths[depths.token == token].iloc[0]
-        buys = pd.DataFrame(json.loads(selected["buy_levels_json"]))
-        sells = pd.DataFrame(json.loads(selected["sell_levels_json"]))
+        buys = json.loads(selected["buy_levels_json"])
+        sells = json.loads(selected["sell_levels_json"])
+        metrics = depth_metrics(buys, sells)
+        with sqlite3.connect(DB_PATH, timeout=5) as con:
+            previous = pd.read_sql_query(
+                "SELECT * FROM depth_snapshots WHERE token=? AND id < ? ORDER BY id DESC LIMIT 1",
+                con, params=(str(token), int(selected["id"])))
+        changes = []
+        if not previous.empty:
+            changes = liquidity_changes(
+                json.loads(previous.iloc[0]["buy_levels_json"]),
+                json.loads(previous.iloc[0]["sell_levels_json"]), buys, sells)
+
+        st.markdown("**Current book metrics**")
+        a, b, c, e = st.columns(4)
+        a.metric("Best bid", f"₹{metrics['best_bid']:,.2f}" if metrics["best_bid"] is not None else "—")
+        b.metric("Best ask", f"₹{metrics['best_ask']:,.2f}" if metrics["best_ask"] is not None else "—")
+        c.metric("Spread", f"₹{metrics['spread']:,.2f}" if metrics["spread"] is not None else "—")
+        e.metric("Weighted mid", f"₹{metrics['weighted_mid']:,.2f}" if metrics["weighted_mid"] is not None else "—")
+        summary = [{
+            "Depth": f"Top {n}", "Bid quantity": metrics[f"bid_qty_{n}"],
+            "Ask quantity": metrics[f"ask_qty_{n}"],
+            "Bid/ask imbalance": f"{metrics[f'imbalance_{n}']:+.1f}%"
+        } for n in (5, 10, 20)]
+        st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+        st.caption("Imbalance = (bid quantity − ask quantity) / total displayed quantity. Positive means more displayed bid size; negative means more displayed ask size.")
         left, right = st.columns(2)
         with left:
             st.markdown("**Bid levels**")
-            st.dataframe(buys, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(buys), use_container_width=True, hide_index=True)
         with right:
             st.markdown("**Ask levels**")
-            st.dataframe(sells, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(sells), use_container_width=True, hide_index=True)
+        st.markdown("**Displayed liquidity changes vs previous snapshot**")
+        if changes:
+            st.dataframe(pd.DataFrame(changes[:20]), use_container_width=True, hide_index=True)
+        else:
+            st.info("No prior snapshot available, or quantities at matching prices did not change.")
         stamp = selected["received_timestamp"]
         st.caption(f"Received: {stamp} · Exchange timestamp: {selected['exchange_timestamp'] or 'not supplied'} · Quality: {selected['quality_flags'] or 'OK'}")
-        st.caption("Depth is a snapshot of displayed liquidity, not trade flow or a sequenced order-event feed.")
-
+        st.caption("Snapshot-to-snapshot observations do not prove cancellations, executions, queue movement, aggressive buying/selling, or trade intent.")
 
 live_market_panel()
 st.divider()
