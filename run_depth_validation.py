@@ -5,6 +5,7 @@ does not establish executable returns or causality.
 """
 import argparse
 import sqlite3
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -54,7 +55,9 @@ def load_samples(days):
             signal_time = row.time
             # Use the first candle timestamp at/after the snapshot as the
             # baseline, then the first candle at/after each forward horizon.
-            base_idx = next((i for i, t in enumerate(price_times) if t >= signal_time), None)
+            base_idx = bisect_left(price_times, signal_time)
+            if base_idx >= len(price_times):
+                base_idx = None
             if base_idx is None:
                 continue
             record = {
@@ -70,7 +73,9 @@ def load_samples(days):
             }
             for horizon in (1, 5):
                 target_time = signal_time + pd.Timedelta(minutes=horizon)
-                target_idx = next((i for i, t in enumerate(price_times) if t >= target_time), None)
+                target_idx = bisect_left(price_times, target_time)
+                if target_idx >= len(price_times):
+                    target_idx = None
                 if target_idx is not None and target_idx > base_idx and prices[base_idx] > 0:
                     record[f"return_{horizon}m_pct"] = (
                         prices[target_idx] / prices[base_idx] - 1.0) * 100.0
