@@ -115,3 +115,21 @@ Results are saved to SQLite tables `replay_bars`, `backtest_runs` and `backtest_
 - Results are exploratory, not evidence of future profitability. Use out-of-sample periods and avoid optimizing on the same period used for evaluation.
 
 See [docs/HISTORICAL_REPLAY.md](docs/HISTORICAL_REPLAY.md) for details.
+
+
+## Live NSE cash Depth20 collection
+
+After `python auth.py`, run:
+
+```powershell
+python run_live_feed.py --depth
+```
+
+This separate collector stores Angel One NSE cash Depth20 snapshots in SQLite
+table `depth_snapshots`; the dashboard displays the latest stored bid/ask
+levels. The official SDK currently restricts Depth mode to NSE cash (exchange
+type 1) and at most 50 tokens. The ordinary `python run_live_feed.py` quote
+collector remains unchanged and continues to collect NSE cash plus NFO futures
+quotes/candles. Depth snapshots are displayed liquidity, not sequenced order
+events or trade aggressor prints; they cannot produce true CVD or footprint
+delta. See [docs/LIVE_DEPTH.md](docs/LIVE_DEPTH.md).
