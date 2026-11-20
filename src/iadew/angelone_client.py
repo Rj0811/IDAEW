@@ -89,7 +89,16 @@ def front_index_future(master: pd.DataFrame, name: str):
                       (master["instrumenttype"].str.upper() == "FUT")].copy()
     if rows.empty:
         return None
-    rows["expiry_date"] = pd.to_datetime(rows["expiry"], errors="coerce").dt.date
+    expiry_raw = rows["expiry"].astype("string").str.strip().str.upper()
+    # Angel One commonly uses DDMMMYYYY (e.g. 26NOV2026); retain a mixed-format
+    # fallback for any ISO-style values in the instrument master.
+    expiry_parsed = pd.to_datetime(expiry_raw, format="%d%b%Y", errors="coerce")
+    missing = expiry_parsed.isna() & expiry_raw.notna()
+    if missing.any():
+        expiry_parsed.loc[missing] = pd.to_datetime(
+            expiry_raw.loc[missing], format="mixed", errors="coerce"
+        )
+    rows["expiry_date"] = expiry_parsed.dt.date
     today = pd.Timestamp.now(tz=IST).date()
     rows = rows[rows["expiry_date"].notna() & (rows["expiry_date"] >= today)].sort_values("expiry_date")
     return None if rows.empty else rows.iloc[0]
