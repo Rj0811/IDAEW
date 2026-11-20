@@ -52,19 +52,28 @@ def summarise(df, symbol, segment):
                    .groupby("session").tv.sum())
     avg_value = float(daily_value.tail(20).mean()) if not daily_value.empty else 0.0
     score_rvol = min(max((rvol - 1.0) / 1.5, 0), 1) * 30
-    score_trend = 20 if ema9 > ema20 and price > ema20 else (10 if ema9 > ema20 or price > ema20 else 0)
-    score_vwap = 20 if price > vwap else 0
-    score_momentum = min(max((day_return + 0.5) / 1.5, 0), 1) * 15
     score_liquidity = 15 if avg_value >= settings.min_avg_daily_value_cr * 1e7 else 0
-    score = round(score_rvol + score_trend + score_vwap + score_momentum + score_liquidity, 1)
+
+    # Direction-specific scores avoid structurally suppressing bearish candidates.
+    bull_trend = 20 if ema9 > ema20 and price > ema20 else (10 if ema9 > ema20 or price > ema20 else 0)
+    bear_trend = 20 if ema9 < ema20 and price < ema20 else (10 if ema9 < ema20 or price < ema20 else 0)
+    bull_vwap = 20 if price > vwap else 0
+    bear_vwap = 20 if price < vwap else 0
+    bull_momentum = min(max((day_return + 0.5) / 1.5, 0), 1) * 15
+    bear_momentum = min(max((-day_return + 0.5) / 1.5, 0), 1) * 15
+    bull_score = round(score_rvol + bull_trend + bull_vwap + bull_momentum + score_liquidity, 1)
+    bear_score = round(score_rvol + bear_trend + bear_vwap + bear_momentum + score_liquidity, 1)
+    score = max(bull_score, bear_score)
+    bias = "BULLISH_CANDIDATE" if bull_score >= bear_score else "BEARISH_CANDIDATE"
+    if score < 65:
+        bias = "WATCH"
     return {
         "symbol": symbol, "segment": segment, "timestamp": str(last.date),
         "price": round(price, 2), "day_return_pct": round(day_return, 2),
         "rvol": round(float(rvol), 2), "vwap": round(vwap, 2),
         "ema9": round(ema9, 2), "ema20": round(ema20, 2),
         "avg_daily_value_cr": round(avg_value / 1e7, 2), "score": score,
-        "bias": "BULLISH_CANDIDATE" if score >= 65 and price > vwap else
-                "BEARISH_CANDIDATE" if score >= 65 and price < vwap else "WATCH",
+        "bull_score": bull_score, "bear_score": bear_score, "bias": bias,
         "data_note": "5m OHLCV-derived; not bid/ask footprint delta"
     }
 
