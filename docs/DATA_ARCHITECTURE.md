@@ -1,26 +1,29 @@
 # Data architecture and requirements
 
+## Angel One source mapping
+- Instrument master: official OpenAPIScripMaster JSON, refreshed daily and cached locally.
+- NSE cash: exchange segment `NSE`; cash symbols generally resolve as `SYMBOL-EQ`.
+- NSE derivatives: exchange segment `NFO`; index futures are selected by underlying name, futures instrument type and nearest unexpired expiry.
+- Historical candles: SmartAPI `getCandleData` with exchange, symboltoken, interval, fromdate and todate.
+- Live feed: SmartAPI WebSocket V2 with exchange type 1 for NSE cash and 2 for NFO.
+- Session: JWT and feed tokens returned by TOTP-based SmartAPI login.
+
 ## MVP data
 | Data | Resolution | Source/use |
 |---|---|---|
-| NSE cash OHLCV | 5m, 15m, 1D | Historical context and scanner |
-| Index futures OHLCV | 5m, 15m, 1D | NIFTY/BANKNIFTY context |
-| Instrument master | Daily | Tokens, expiry, lot/tick size |
-| Live quotes | Streaming | Incremental updates and alerts |
+| NSE cash OHLCV | 5m, 15m, 1D | SmartAPI historical candles |
+| Index futures OHLCV | 5m, 15m, 1D | SmartAPI historical candles |
+| Instrument master | Daily | Angel One scrip master |
+| Live quotes | Streaming | SmartAPI WebSocket V2 |
 | Market depth | Provider-supported | Displayed liquidity only |
-| Futures OI | Historical/periodic | Position-change context |
+| Futures OI | Historical/periodic | SmartAPI where returned for contract |
 | NSE reports | Daily/periodic | Aggregate participant context |
 
 ## Advanced data required for genuine order flow
 - Trade-level prints with timestamp, price, quantity and aggressor side (or documented classification method).
 - For footprint, aggregate aggressor buy/sell volume by price and bar.
-- For order-book event analytics, sequenced add/modify/cancel/execute events and sufficient depth. A five-level snapshot is not a full order book.
+- For order-book event analytics, sequenced add/modify/cancel/execute events and sufficient depth. A quote/depth snapshot is not a full order-event feed.
 - Provider permissions for storage, derived analytics and redistribution.
-
-## Data contracts
-Every record carries source, exchange, instrument_token, exchange_timestamp, received_timestamp, timezone, interval and quality_flags.
-
-Quarantine stale ticks, unknown tokens, duplicate/out-of-order events where sequencing matters, invalid OHLC relationships, missing session data and expired futures contracts.
 
 ## Feature definitions
 - RVOL_TOD: cumulative volume through current time divided by mean cumulative volume through the same time over prior comparable sessions.
@@ -29,5 +32,8 @@ Quarantine stale ticks, unknown tokens, duplicate/out-of-order events where sequ
 - OI change: change in OI for the same contract; never interpret in isolation.
 - Basis: futures price minus spot; normalize for expiry/time-to-maturity and compare with historical distribution.
 
-## GoCharting
-Use GoCharting for visual review of footprint, CVD, volume profile, VWAP and DOM as available under the subscription. Do not assume a public API/export endpoint. Do not scrape or reverse engineer private endpoints. Any future connector must use documented and permitted interfaces.
+## Data quality
+Every record carries source, exchange, instrument_token, exchange_timestamp, received_timestamp, timezone, interval and quality_flags. Quarantine stale ticks, unknown tokens, duplicate/out-of-order events where sequencing matters, invalid OHLC relationships, missing session data and expired futures contracts.
+
+## Official documentation
+Refer to Angel One SmartAPI documentation and official Python SDK. Respect the API's documented candle-window limits and request limits. Never hardcode symbol tokens; resolve from the daily scrip master.
