@@ -125,12 +125,12 @@ After `python auth.py`, run:
 python run_live_feed.py --depth
 ```
 
-This separate collector stores Angel One NSE cash Depth20 snapshots in SQLite
-table `depth_snapshots`; the dashboard displays the latest stored bid/ask
-levels. The official SDK currently restricts Depth mode to NSE cash (exchange
-type 1) and at most 50 tokens. The ordinary `python run_live_feed.py` quote
-collector remains unchanged and continues to collect NSE cash plus NFO futures
-quotes/candles. Depth snapshots are displayed liquidity, not sequenced order
+This mode uses one WebSocket session for NSE cash Depth20 snapshots and quote
+packets. It stores depth in SQLite table `depth_snapshots` and aggregates quote
+packets into `live_bars` for the matching NSE cash instruments. Depth20 is
+restricted by the official SDK to NSE cash (exchange type 1), with a maximum
+of 50 tokens per depth subscription. NFO futures are not subscribed for Depth20
+in this mode. Depth snapshots are displayed liquidity, not sequenced order
 events or trade aggressor prints; they cannot produce true CVD or footprint
 delta. See [docs/LIVE_DEPTH.md](docs/LIVE_DEPTH.md).
 
@@ -156,3 +156,19 @@ It exports raw matched observations and grouped summaries under `reports/`.
 Results are descriptive only: candle matching is approximate, and the report
 does not model executable fills, spread, fees, slippage, or causality. Do not
 use the output as a trading signal or optimize thresholds on a small sample.
+
+
+## Pending live validation — Monday, 23 November 2026
+
+This is the next market-session validation checkpoint, not a completed test.
+During the session, run `python run_live_feed.py --depth` and verify:
+- [ ] Depth20 snapshots continue updating for the configured NSE cash watchlist.
+- [ ] Matching 1-minute quote candles update in `live_bars` for those same tokens.
+- [ ] Dashboard rolling 1-minute and 5-minute pressure windows populate.
+- [ ] Near/deep divergence observations behave as expected and are not treated as entries.
+- [ ] After collecting several sessions, run `python run_depth_validation.py --days 5` and review sample counts, timestamp matching, and forward-return summaries.
+- [ ] Record packet gaps, stale timestamps, missing tokens, reconnects and any collector errors.
+
+Do not connect depth metrics to setup scores or trading decisions until the data-quality
+checks and multi-session forward analysis have been reviewed. Track progress in
+[docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md).
