@@ -86,3 +86,32 @@ Angel One historical-data scanner, TOTP login helper and WebSocket V2 adapter ar
 - [Angel One instrument master](https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json)
 
 Market data remains subject to the relevant provider/exchange terms.
+
+
+## Historical replay and paper trading (90 sessions)
+
+After `python auth.py`, run this from the repository root:
+
+```powershell
+python run_backtest.py --days 90 --timeframe FIVE_MINUTE --style both
+```
+
+The command downloads 5-minute history for the configured NSE cash watchlist plus the current front-month NIFTY and BANKNIFTY futures, then runs separate intraday and swing OHLCV-only paper strategies. The requested 90 sessions are translated to a calendar lookback and fetched in windows of at most 90 calendar days to stay below the documented 100-day 5-minute request ceiling. Actual returned history may be shorter depending on Angel One availability and instrument history.
+
+Results are saved to SQLite tables `replay_bars`, `backtest_runs` and `backtest_trades`; open `streamlit run dashboard.py` to inspect run metrics and trades.
+
+### Backtest assumptions and limitations
+
+- Signal calculated at bar close; simulated entry at the next bar open to reduce look-ahead bias.
+- Intraday strategy: EMA9/EMA20 trend, session VWAP and EMA9 recross; positions are not carried overnight.
+- Swing strategy: 20-bar breakout with EMA9/EMA20 trend filter; maximum holding horizon is 60 five-minute bars.
+- Initial stop is 1.5 x ATR(14); target is 2R. If stop and target are both touched in one OHLC bar, stop is assumed first.
+- Indicative default costs are 3 bps per side plus 1 bp slippage per side. Replace with measured broker/exchange charges and realistic instrument-specific slippage before interpreting results.
+- Default paper capital is ₹5,00,000 and risk budget is 0.5% per trade. This is a research default, not a recommendation.
+- Futures sizing in this MVP is simplified to price-unit exposure and does not yet enforce contract lot size, SPAN/exposure margin, expiry roll, or portfolio correlation. Treat futures P&L as indicative only.
+- No order placement is implemented. These are backtest simulations, not live/paper broker orders.
+- OHLCV cannot establish true aggressor delta, footprint, absorption, or institutional participation.
+- Current front-month futures history may not represent a continuous rolled futures series; expiry/roll handling is a future improvement.
+- Results are exploratory, not evidence of future profitability. Use out-of-sample periods and avoid optimizing on the same period used for evaluation.
+
+See [docs/HISTORICAL_REPLAY.md](docs/HISTORICAL_REPLAY.md) for details.
