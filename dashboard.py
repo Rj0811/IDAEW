@@ -88,10 +88,10 @@ if DB_PATH.exists():
             with sqlite3.connect(DB_PATH, timeout=5) as con:
                 trades = pd.read_sql_query("SELECT * FROM backtest_trades WHERE run_id=? ORDER BY entry_time", con, params=(run_id,))
             if not trades.empty:
-                styles = ["All"] + sorted(trades.style.unique().tolist())
+                styles = ["All"] + sorted(trades["style"].dropna().astype(str).unique().tolist())
                 chosen_style = st.selectbox("Strategy style", styles, key="bt_style")
                 if chosen_style != "All":
-                    trades = trades[trades.style == chosen_style]
+                    trades = trades[trades["style"].astype(str) == chosen_style]
                 st.dataframe(trades.drop(columns=["id", "run_id"]), use_container_width=True, hide_index=True)
                 equity = trades.sort_values("exit_time").set_index("exit_time")["net_pnl"].cumsum()
                 st.line_chart(equity, y_label="Cumulative net P&L (₹)")
