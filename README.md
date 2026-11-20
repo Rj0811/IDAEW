@@ -133,3 +133,26 @@ collector remains unchanged and continues to collect NSE cash plus NFO futures
 quotes/candles. Depth snapshots are displayed liquidity, not sequenced order
 events or trade aggressor prints; they cannot produce true CVD or footprint
 delta. See [docs/LIVE_DEPTH.md](docs/LIVE_DEPTH.md).
+
+
+## Validate depth pressure against subsequent price movement
+
+For meaningful validation, use the combined collector so each NSE cash instrument
+has both Depth20 snapshots and 1-minute quote candles on the same WebSocket:
+
+```powershell
+python run_live_feed.py --depth
+```
+
+Leave it running during market hours over multiple sessions. Then run:
+
+```powershell
+python run_depth_validation.py --days 5
+```
+
+The report matches each depth snapshot to the first available 1-minute candle at
+or after the snapshot and measures subsequent 1-minute and 5-minute close returns.
+It exports raw matched observations and grouped summaries under `reports/`.
+Results are descriptive only: candle matching is approximate, and the report
+does not model executable fills, spread, fees, slippage, or causality. Do not
+use the output as a trading signal or optimize thresholds on a small sample.
