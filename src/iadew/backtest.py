@@ -122,6 +122,9 @@ def simulate_instrument(frame: pd.DataFrame, symbol: str, segment: str, style: s
             i += 1
             continue
         entry_i = i + 1  # next bar open: no same-bar lookahead
+        if style == "intraday" and x.iloc[entry_i]["session"] != x.iloc[i]["session"]:
+            i += 1
+            continue
         entry_bar = x.iloc[entry_i]
         entry_raw = float(entry_bar["open"])
         direction = "LONG" if signal == 1 else "SHORT"
@@ -192,7 +195,7 @@ def metrics(trades: list[dict]) -> dict:
                 "profit_factor": 0.0, "max_drawdown": 0.0}
     pnl = pd.Series([t["net_pnl"] for t in trades], dtype=float)
     gains, losses = pnl[pnl > 0].sum(), -pnl[pnl < 0].sum()
-    equity = pnl.cumsum()
+    equity = pd.concat([pd.Series([0.0]), pnl.cumsum()], ignore_index=True)
     drawdown = equity - equity.cummax()
     return {
         "trade_count": int(len(pnl)), "net_pnl": round(float(pnl.sum()), 2),
