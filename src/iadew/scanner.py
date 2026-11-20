@@ -3,7 +3,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 from .config import settings
-from .kite_client import make_kite, load_instruments, history
+from .angelone_client import make_smart_api, load_instruments, history, cash_instrument, front_index_future
 
 IST = "Asia/Kolkata"
 
@@ -100,52 +100,38 @@ def save(rows):
              r["day_return_pct"],r["rvol"],r["vwap"],r["ema9"],r["ema20"],
              r["avg_daily_value_cr"],r["score"],r["bias"],r["data_note"]))
 
-def _front_future(kite, name):
-    nfo = pd.DataFrame(kite.instruments("NFO"))
-    if nfo.empty:
-        return None
-    today = pd.Timestamp.now(tz=IST).date()
-    f = nfo[(nfo.name == name) & (nfo.instrument_type == "FUT")].copy()
-    if f.empty:
-        return None
-    f["expiry"] = pd.to_datetime(f.expiry).dt.date
-    f = f[f.expiry >= today].sort_values("expiry")
-    if f.empty:
-        return None
-    row = f.iloc[0]
-    return int(row.instrument_token), str(row.tradingsymbol)
-
 def run_scan():
-    kite = make_kite()
-    nse = load_instruments(kite, "NSE")
+    api = make_smart_api()
+    master = load_instruments()
     rows = []
     for symbol in settings.watchlist:
-        found = nse[nse.tradingsymbol == symbol]
-        if found.empty:
-            print(f"SKIP {symbol}: not found")
+        instrument = cash_instrument(master, symbol)
+        if instrument is None:
+            print(f"SKIP {symbol}: not found in Angel One NSE scrip master")
             continue
         try:
-            token = int(found.iloc[0].instrument_token)
-            bars = history(kite, token, settings.lookback_days, "5minute")
+            bars = history(api, str(instrument["token"]), "NSE", settings.lookback_days, "FIVE_MINUTE")
             result = summarise(bars, symbol, "NSE_CASH")
-            if result and result["price"] >= settings.min_price and result["avg_daily_value_cr"] >= settings.min_avg_daily_value_cr * 1.0 and result["rvol"] >= settings.rvol_min:
+            if result and result["price"] >= settings.min_price and result["avg_daily_value_cr"] >= settings.min_avg_daily_value_cr and result["rvol"] >= settings.rvol_min:
                 rows.append(result)
             print(f"Scanned {symbol}")
         except Exception as exc:
             print(f"ERROR {symbol}: {exc}")
+
     for name in ("NIFTY", "BANKNIFTY"):
         try:
-            contract = _front_future(kite, name)
-            if not contract:
+            instrument = front_index_future(master, name)
+            if instrument is None:
+                print(f"SKIP {name} FUT: no unexpired contract in Angel One scrip master")
                 continue
-            token, tradingsymbol = contract
-            bars = history(kite, token, settings.lookback_days, "5minute", oi=True)
-            result = summarise(bars, tradingsymbol, "INDEX_FUT")
+            bars = history(api, str(instrument["token"]), "NFO", settings.lookback_days, "FIVE_MINUTE")
+            result = summarise(bars, str(instrument["symbol"]), "INDEX_FUT")
             if result and result["rvol"] >= settings.rvol_min:
                 rows.append(result)
-            print(f"Scanned {tradingsymbol}")
+            print(f"Scanned {instrument['symbol']}")
         except Exception as exc:
             print(f"ERROR {name} FUT: {exc}")
+
     rows.sort(key=lambda item: item["score"], reverse=True)
     save(rows)
     if rows:
