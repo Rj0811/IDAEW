@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from src.iadew.config import settings
-from src.iadew.depth_analytics import depth_metrics, liquidity_changes
+from src.iadew.depth_analytics import depth_metrics, liquidity_changes, rolling_depth_analysis
 
 IST = ZoneInfo("Asia/Kolkata")
 DB_PATH = settings.db_path
@@ -80,6 +80,21 @@ def live_market_panel():
             previous = pd.read_sql_query(
                 "SELECT * FROM depth_snapshots WHERE token=? AND id < ? ORDER BY id DESC LIMIT 1",
                 con, params=(str(token), int(selected["id"])))
+        history_rows = []
+        with sqlite3.connect(DB_PATH, timeout=5) as con:
+            recent = pd.read_sql_query(
+                """SELECT received_timestamp, buy_levels_json, sell_levels_json
+                   FROM depth_snapshots WHERE token=? ORDER BY id DESC LIMIT 1000""",
+                con, params=(str(token),))
+        for _, row in recent.iloc[::-1].iterrows():
+            history_rows.append({
+                "received_timestamp": row["received_timestamp"],
+                "buys": json.loads(row["buy_levels_json"]),
+                "sells": json.loads(row["sell_levels_json"]),
+            })
+        rolling_1m = rolling_depth_analysis(history_rows, 1)
+        rolling_5m = rolling_depth_analysis(history_rows, 5)
+
         changes = []
         if not previous.empty:
             changes = liquidity_changes(
@@ -113,6 +128,28 @@ def live_market_panel():
             st.info("No prior snapshot available, or quantities at matching prices did not change.")
         stamp = selected["received_timestamp"]
         st.caption(f"Received: {stamp} · Exchange timestamp: {selected['exchange_timestamp'] or 'not supplied'} · Quality: {selected['quality_flags'] or 'OK'}")
+
+        st.markdown("**Rolling depth pressure**")
+        if rolling_1m and rolling_5m:
+            st.caption(f"Samples in last 1m: {rolling_1m['samples']} · Samples in last 5m: {rolling_5m['samples']}")
+            for label, data in (("1-minute", rolling_1m), ("5-minute", rolling_5m)):
+                st.markdown(f"**{label} window**")
+                pressure = pd.DataFrame([{
+                    "Depth": f"Top {n}",
+                    "Mean imbalance": f"{data[f'mean_imbalance_{n}']:+.1f}%",
+                    "Bid-dominant persistence (≥ +15%)": f"{data[f'positive_persistence_{n}']:.0f}%",
+                    "Ask-dominant persistence (≤ −15%)": f"{data[f'negative_persistence_{n}']:.0f}%"
+                } for n in (5, 10, 20)])
+                st.dataframe(pressure, use_container_width=True, hide_index=True)
+            st.markdown("**Near-book vs deeper-book disagreement**")
+            st.write(rolling_1m["divergence"])
+            if rolling_1m["alert"] != "No divergence alert":
+                st.warning("Observation alert: near/deep liquidity divergence persisted across at least 3 recent snapshots. This is not a trade-entry signal.")
+            else:
+                st.caption("No divergence alert: the minimum 3-snapshot condition is not met or near/deep pressure is not strongly opposed.")
+        else:
+            st.info("Rolling pressure requires timestamped snapshots. Keep the depth collector running to build a 1–5 minute sample history.")
+
         st.caption("Snapshot-to-snapshot observations do not prove cancellations, executions, queue movement, aggressive buying/selling, or trade intent.")
 
 live_market_panel()
