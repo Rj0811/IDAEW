@@ -190,6 +190,7 @@ def init_replay_db(db_path: Path):
 
 
 def metrics(trades: list[dict]) -> dict:
+    trades = sorted(trades, key=lambda item: item["exit_time"])
     if not trades:
         return {"trade_count": 0, "net_pnl": 0.0, "win_rate": 0.0,
                 "profit_factor": 0.0, "max_drawdown": 0.0}
