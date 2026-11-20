@@ -36,14 +36,33 @@ flowchart TD
 3. Resolve NSE cash symbols to their Angel One symbol tokens and front-month NIFTY/BANKNIFTY futures to NFO tokens.
 4. Load historical 5-minute candles and calculate time-of-day RVOL, VWAP, EMA trend, momentum and traded value.
 5. Use the SmartAPI WebSocket V2 adapter for live quote streaming; normalize packets before feature updates.
-6. Add independently sourced aggressor-side trade data before calculating true delta/CVD/footprint. Do not infer these from OHLCV candles.
-7. Add liquidity sweeps, absorption candidates, volume-profile context and futures OI/basis features.
-8. Add evidence-based setup scoring, hard risk gates and alert deduplication.
-9. Paper trade, model costs/slippage, walk-forward test and review out-of-sample results.
-10. Keep order entry manual in v1; review current SEBI/exchange/broker rules before any automated order routing.
+6. Aggregate received ticks into local 1-minute and 5-minute OHLCV candles in SQLite.
+7. Add independently sourced aggressor-side trade data before calculating true delta/CVD/footprint. Do not infer these from OHLCV candles.
+8. Add liquidity sweeps, absorption candidates, volume-profile context and futures OI/basis features.
+9. Add evidence-based setup scoring, hard risk gates and alert deduplication.
+10. Paper trade, model costs/slippage, walk-forward test and review out-of-sample results.
+11. Keep order entry manual in v1; review current SEBI/exchange/broker rules before any automated order routing.
+
+## Run live candle collection
+
+In PowerShell from the repository root, after installing requirements and running `python auth.py`:
+
+```powershell
+python run_live_feed.py
+```
+
+Keep this process running during market hours. In a second PowerShell window, run:
+
+```powershell
+streamlit run dashboard.py
+```
+
+The dashboard reads the SQLite `live_bars` table and displays 1-minute/5-minute candles. Stop the collector with Ctrl+C. The collector does not place orders.
 
 ## Data truth and limitations
 
+- Angel One LTP values are normalized from paise to rupees in the live candle aggregator.
+- Volume is calculated from changes in cumulative day volume. The first received packet per token establishes the volume baseline; it is not counted into a candle. Reconnects or day-volume resets should be reviewed.
 - OHLCV-derived RVOL/VWAP/EMA are context features, not institutional-flow evidence.
 - SmartAPI WebSocket quote/depth packets provide market-data snapshots, not a complete sequenced order-event feed.
 - OI changes do not identify the participant or prove direction by themselves.
