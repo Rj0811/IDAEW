@@ -40,3 +40,20 @@ market hours, watchlist size and SmartAPI subscription response.
 - This feed does not provide the trade prints needed to claim true footprint
   delta or CVD. Keep GoCharting as the visual footprint/CVD confirmation tool
   until a documented trade-level feed is available.
+
+
+## Snapshot-based analytics
+
+The dashboard calculates:
+- Best bid, best ask, spread, midpoint and quantity-weighted midpoint.
+- Bid and ask displayed quantities across the top 5, 10 and 20 levels.
+- Depth imbalance as (bid quantity - ask quantity) / total displayed quantity.
+- Quantity changes at identical price levels between the latest two stored snapshots.
+
+A positive imbalance means more displayed bid quantity in the selected depth window;
+a negative value means more displayed ask quantity. This is a book-state metric,
+not a directional trade signal. A level disappearing or shrinking between snapshots
+is labelled as reduced/absent displayed liquidity; it is not proof of cancellation
+because an execution, repricing, feed sampling gap or other event may explain it.
+
+Unit tests: `python -m unittest tests.test_depth_analytics`.
