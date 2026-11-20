@@ -72,7 +72,7 @@ def load_samples(days):
                 ),
             }
             for horizon in (1, 5):
-                target_time = signal_time + pd.Timedelta(minutes=horizon)
+                target_time = price_times[base_idx] + pd.Timedelta(minutes=horizon)
                 target_idx = bisect_left(price_times, target_time)
                 if target_idx >= len(price_times):
                     target_idx = None
