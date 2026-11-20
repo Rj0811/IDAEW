@@ -83,9 +83,15 @@ if DB_PATH.exists():
         m3.metric("Win rate", f"{run.win_rate:.1f}%")
         m4.metric("Profit factor", f"{run.profit_factor:.2f}")
         m5.metric("Max drawdown", f"₹{run.max_drawdown:,.2f}")
-        if "ending_equity" in run.index:
+        if "ending_equity" in run.index and pd.notna(run.ending_equity) and float(run.ending_equity) > 0:
             st.metric("Ending portfolio equity", f"₹{run.ending_equity:,.2f}")
-        st.caption(f"{run.days} trading sessions · {run.timeframe} · {run.styles} · {run.instrument_count} instruments")
+        st.caption(f"{run.days} requested trading sessions · {run.timeframe} · {run.styles} · {run.instrument_count} instruments")
+        with sqlite3.connect(DB_PATH, timeout=5) as con:
+            if table_exists(con, "replay_bars"):
+                coverage = pd.read_sql_query("SELECT COUNT(*) AS bars, MIN(bar_time) AS first_bar, MAX(bar_time) AS last_bar FROM replay_bars WHERE run_id=?", con, params=(run_id,))
+                if not coverage.empty and int(coverage.iloc[0]["bars"] or 0) > 0:
+                    cv = coverage.iloc[0]
+                    st.caption(f"Actual stored data coverage: {cv.first_bar} → {cv.last_bar} · {int(cv.bars):,} bars")
         if has_trades:
             with sqlite3.connect(DB_PATH, timeout=5) as con:
                 trades = pd.read_sql_query("SELECT * FROM backtest_trades WHERE run_id=? ORDER BY entry_time", con, params=(run_id,))
