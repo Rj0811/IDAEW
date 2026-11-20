@@ -255,7 +255,7 @@ def init_replay_db(db_path: Path):
             run_id TEXT PRIMARY KEY, created_at TEXT, days INTEGER, timeframe TEXT,
             styles TEXT, instrument_count INTEGER, trade_count INTEGER,
             net_pnl REAL, win_rate REAL, profit_factor REAL, max_drawdown REAL,
-            notes TEXT)""")
+            notes TEXT, ending_equity REAL DEFAULT 0)""")
         con.execute("""CREATE TABLE IF NOT EXISTS backtest_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
             symbol TEXT, segment TEXT, style TEXT, direction TEXT,
@@ -264,6 +264,9 @@ def init_replay_db(db_path: Path):
             gross_pnl REAL, costs REAL, net_pnl REAL, risk_cash REAL,
             risk_budget REAL DEFAULT 0, actual_risk REAL DEFAULT 0,
             allocated_capital REAL DEFAULT 0, lot_size INTEGER DEFAULT 1)""")
+        run_columns = {row[1] for row in con.execute("PRAGMA table_info(backtest_runs)")}
+        if "ending_equity" not in run_columns:
+            con.execute("ALTER TABLE backtest_runs ADD COLUMN ending_equity REAL DEFAULT 0")
         existing = {row[1] for row in con.execute("PRAGMA table_info(backtest_trades)")}
         for name, definition in [("risk_budget", "REAL DEFAULT 0"), ("actual_risk", "REAL DEFAULT 0"), ("allocated_capital", "REAL DEFAULT 0"), ("lot_size", "INTEGER DEFAULT 1")]:
             if name not in existing:
@@ -355,8 +358,8 @@ def run_historical_backtest(days: int = 90, timeframe: str = "FIVE_MINUTE",
         ])
         con.execute("""INSERT INTO backtest_runs
             (run_id,created_at,days,timeframe,styles,instrument_count,trade_count,net_pnl,
-             win_rate,profit_factor,max_drawdown,notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
+             win_rate,profit_factor,max_drawdown,notes,ending_equity)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             run_id, datetime.now(IST).isoformat(timespec="seconds"), days, timeframe,
             ",".join(styles), len(universe), summary["trade_count"], summary["net_pnl"],
             summary["win_rate"], summary["profit_factor"], summary["max_drawdown"],
