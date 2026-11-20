@@ -83,6 +83,8 @@ if DB_PATH.exists():
         m3.metric("Win rate", f"{run.win_rate:.1f}%")
         m4.metric("Profit factor", f"{run.profit_factor:.2f}")
         m5.metric("Max drawdown", f"₹{run.max_drawdown:,.2f}")
+        if "ending_equity" in run.index:
+            st.metric("Ending portfolio equity", f"₹{run.ending_equity:,.2f}")
         st.caption(f"{run.days} trading sessions · {run.timeframe} · {run.styles} · {run.instrument_count} instruments")
         if has_trades:
             with sqlite3.connect(DB_PATH, timeout=5) as con:
@@ -93,8 +95,17 @@ if DB_PATH.exists():
                 if chosen_style != "All":
                     trades = trades[trades["style"].astype(str) == chosen_style]
                 st.dataframe(trades.drop(columns=["id", "run_id"]), use_container_width=True, hide_index=True)
-                equity = trades.sort_values("exit_time").set_index("exit_time")["net_pnl"].cumsum()
-                st.line_chart(equity, y_label="Cumulative net P&L (₹)")
+                st.subheader("Portfolio and strategy diagnostics")
+                if {"risk_budget", "actual_risk", "allocated_capital"}.issubset(trades.columns):
+                    st.caption("risk_budget is the requested risk ceiling; actual_risk is quantity × stop distance. allocated_capital reserves full notional, not broker margin.")
+                by_style = trades.groupby("style", dropna=False).agg(trades=("net_pnl", "size"), net_pnl=("net_pnl", "sum"), win_rate=("net_pnl", lambda x: (x > 0).mean() * 100), avg_actual_risk=("actual_risk", "mean")).reset_index()
+                by_symbol = trades.groupby(["symbol", "segment"], dropna=False).agg(trades=("net_pnl", "size"), net_pnl=("net_pnl", "sum"), win_rate=("net_pnl", lambda x: (x > 0).mean() * 100)).reset_index()
+                st.markdown("**By strategy**")
+                st.dataframe(by_style, use_container_width=True, hide_index=True)
+                st.markdown("**By instrument**")
+                st.dataframe(by_symbol, use_container_width=True, hide_index=True)
+                equity = trades.sort_values(["exit_time", "entry_time"]).set_index("exit_time")["net_pnl"].cumsum()
+                st.line_chart(equity, y_label="Cumulative portfolio P&L (₹)")
 else:
     st.info("Run a backtest to initialize the local research database.")
 
