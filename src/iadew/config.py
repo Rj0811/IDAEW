@@ -27,5 +27,8 @@ class Settings:
     rvol_min: float = float(os.getenv("RVOL_MIN", "1.25"))
     db_path: Path = ROOT / "data" / "iadew.sqlite3"
     instrument_cache: Path = ROOT / "data" / "angelone_scrip_master.json"
+    # NVIDIA NIM API
+    nvidia_api_key: str = os.getenv("NVIDIA_API_KEY", "")
+    nvidia_model: str = os.getenv("NVIDIA_MODEL", "z-ai/glm-5.3-flash")
 
 settings = Settings()

@@ -7,7 +7,6 @@ inspect private network traffic or automate trading.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import re
@@ -67,36 +66,20 @@ def build_record(instrument: str, asset_class: str, image_path: Path,
     }
 
 
-def analyze_with_openai(image_path: Path, model: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured; use the saved screenshot with ChatGPT manually.")
-    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    payload = {
-        "model": model,
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": VISION_PROMPT},
-                {"type": "input_image", "image_url": f"data:image/png;base64,{encoded}", "detail": "high"}
-            ]
-        }]
-    }
-    response = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload, timeout=120
+def analyze_with_nvidia(image_path: Path, model: str) -> str:
+    """Analyze a chart screenshot using the NVIDIA NIM API (GLM-5.3-flash multimodal).
+
+    GLM-5.3-flash supports image-to-text natively via the OpenAI-compatible
+    messages format.  Requires NVIDIA_API_KEY in .env.
+    """
+    from .nvidia_client import analyze_image_with_nvidia
+    return analyze_image_with_nvidia(
+        image_path=image_path,
+        prompt=VISION_PROMPT,
+        model=model,
+        max_tokens=2048,
+        temperature=0.3,
     )
-    response.raise_for_status()
-    body = response.json()
-    texts = []
-    for item in body.get("output", []):
-        for part in item.get("content", []):
-            if part.get("type") == "output_text":
-                texts.append(part.get("text", ""))
-    if not texts:
-        raise RuntimeError(f"No text returned by vision model: {json.dumps(body)[:1200]}")
-    return "\n".join(texts)
 
 
 def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
@@ -133,7 +116,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
             record = build_record(instrument, asset_class, image_path, page.url, page.title())
             if analyze:
                 try:
-                    result = analyze_with_openai(image_path, model)
+                    result = analyze_with_nvidia(image_path, model)
                     analysis_path = CAPTURE_DIR / f"{stem}_analysis.md"
                     analysis_path.write_text(result, encoding="utf-8")
                     record["analysis_status"] = "completed"
@@ -149,7 +132,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
             print(f"Saved: {image_path}")
             print(f"Metadata: {metadata_path}")
             if not analyze:
-                print("Vision step: upload the PNG to ChatGPT and paste the companion prompt.")
+                print("Vision step: upload the PNG manually or run with --analyze to use NVIDIA NIM (GLM-5.3-flash).")
         context.close()
 
 
@@ -165,8 +148,8 @@ def main() -> None:
     parser.add_argument("--symbols", nargs="*", help="Override default NIFTY, BANKNIFTY and CASH_WATCHLIST universe.")
     parser.add_argument("--stocks-only", action="store_true")
     parser.add_argument("--indices-only", action="store_true")
-    parser.add_argument("--analyze", action="store_true", help="Analyze each screenshot with OpenAI API (requires OPENAI_API_KEY).")
-    parser.add_argument("--model", default=os.getenv("IADEW_VISION_MODEL", "gpt-4.1-mini"))
+    parser.add_argument("--analyze", action="store_true", help="Analyze each screenshot with NVIDIA NIM API (requires NVIDIA_API_KEY in .env).")
+    parser.add_argument("--model", default=os.getenv("IADEW_VISION_MODEL", "z-ai/glm-5.3-flash"))
     args = parser.parse_args()
 
     universe = default_universe()
