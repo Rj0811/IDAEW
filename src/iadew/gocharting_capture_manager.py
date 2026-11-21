@@ -148,11 +148,16 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                 pass
             page.wait_for_timeout(3500)
             # Reassert 5m using the visible toolbar when an unambiguous visible control exists.
-            five_minute = page.get_by_text("5m", exact=True).filter(visible=True)
+            five_minute = page.get_by_text("5m", exact=True)
             try:
-                if five_minute.count() == 1:
-                    five_minute.click(timeout=2500)
-                    page.wait_for_timeout(1200)
+                # Find and click the first visible exact 5m control. GoCharting can
+                # expose more than one matching label in its toolbar.
+                for candidate in range(min(five_minute.count(), 8)):
+                    control = five_minute.nth(candidate)
+                    if control.is_visible():
+                        control.click(timeout=2500)
+                        page.wait_for_timeout(1200)
+                        break
             except Exception:
                 pass
             stamp = datetime.now(IST).strftime("%Y%m%d_%H%M%S")
