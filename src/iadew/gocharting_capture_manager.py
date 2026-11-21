@@ -165,6 +165,15 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
             image_path = CAPTURE_DIR / f"{stem}.png"
             page.screenshot(path=str(image_path), full_page=False, animations="disabled")
             visible_text = page.locator("body").inner_text(timeout=5000)
+            # Include accessible labels/tooltips: chart type is sometimes exposed
+            # there even when the plot itself is canvas-rendered.
+            try:
+                labels = page.locator("[aria-label], [title]").evaluate_all(
+                    "(els) => els.map(e => (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '')).join(' ')"
+                )
+                visible_text += " " + labels
+            except Exception:
+                pass
             quality = image_quality(image_path)
             accepted, problems, checks = validate_capture(
                 instrument.upper(), page.url, page.title(), visible_text, quality
