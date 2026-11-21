@@ -138,9 +138,12 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(BASE_URL + "NSE:NIFTY-I", wait_until="domcontentloaded", timeout=60000)
         print("\nSign in if required. Configure a 5-minute footprint chart ONCE.")
-        print("Keep the footprint layout active; the collector will rotate symbols.")
-        print("Press ENTER once when the initial chart is ready (not once per symbol).")
-        input("Ready to start automated watchlist capture? ")
+        print("Verify the visible chart shows bid/ask footprint cells, then confirm.")
+        print("This confirmation applies to the session; instrument/timeframe/image checks still run per capture.")
+        answer = input("Is the current chart a 5-minute footprint? Type YES to confirm: ").strip().upper()
+        footprint_operator_confirmed = answer == "YES"
+        if not footprint_operator_confirmed:
+            raise RuntimeError("Capture cancelled: footprint layout was not confirmed.")
         for index, (instrument, asset_class) in enumerate(instruments, start=1):
             ticker = ticker_for(instrument, asset_class)
             page.goto(BASE_URL + ticker, wait_until="domcontentloaded", timeout=60000)
