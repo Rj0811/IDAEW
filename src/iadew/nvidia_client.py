@@ -155,6 +155,9 @@ def analyze_image_with_nvidia(
         "stream": False,
         "temperature": temperature,
         "top_p": 1,
+        # GLM-5.3-Flash defaults to maximum reasoning; low reduces latency
+        # for this bounded visual extraction task.
+        "reasoning_effort": "low",
         "messages": [
             {"role": "system", "content": system},
             {
@@ -167,7 +170,7 @@ def analyze_image_with_nvidia(
         ],
     }
     response = requests.post(
-        NVIDIA_NIM_URL, headers=_headers(False), json=payload, timeout=180
+        NVIDIA_NIM_URL, headers=_headers(False), json=payload, timeout=(20, 300)
     )
     response.raise_for_status()
 
