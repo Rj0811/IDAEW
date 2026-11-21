@@ -50,7 +50,8 @@ python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE
 1. Run the command. The dedicated Chromium profile opens GoCharting.
 2. Sign in if needed.
 3. Configure the 5-minute footprint chart layout once. Keep that layout active.
-4. Press ENTER once in the terminal to start the rotation.
+4. At the terminal prompt, type `YES` to confirm that the visible chart is a 5-minute footprint. This one-time operator confirmation is recorded in every session capture; it replaces the inaccessible canvas chart-type label.
+
 5. The manager navigates each requested instrument, captures one screenshot and validates it before moving on.
 6. Inspect `data/gocharting_captures/*_*.json` and the session `capture_manifest_*.json`. Rejected captures include explicit validation errors.
 
@@ -59,7 +60,7 @@ The browser is visible by default. Do not use headless mode for chart capture be
 ## Current limitations / next hardening step
 
 - UI navigation and the terminal URL pattern can change; no private GoCharting API or network scraping is used.
-- The chart style may be canvas-only and inaccessible to browser text inspection. In that case, strict validation rejects captures. The next step is to inspect a live page's accessible labels or add a carefully tested UI-state check—not to silently accept an unverified chart.
+- The chart style may be canvas-only and inaccessible to browser text inspection. The manager therefore requires one explicit operator confirmation per session that the initial chart is a 5-minute footprint. Instrument, timeframe and image checks still run independently on every capture. This does not prove the chart type remains unchanged after each navigation; it records the operator-confirmed session layout assumption.
 - Automatic zoom manipulation is intentionally not enabled yet. The manager uses a large viewport at normal browser zoom rather than zooming out and making footprint cells unreadable.
 - This version captures a single viewport image per instrument, as requested. If a full-session overview and readable cells cannot both fit, a later multi-region mode will be more appropriate.
 - NVIDIA inference can still time out or exhaust its token budget; those failures are recorded separately from capture validation.
