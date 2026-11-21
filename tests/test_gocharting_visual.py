@@ -54,3 +54,17 @@ def test_validator_rejects_wrong_symbol():
     )
     assert not accepted
     assert any("instrument" in error for error in errors)
+
+
+def test_operator_confirmation_allows_canvas_only_footprint_label():
+    accepted, errors, checks = validate_capture(
+        "NIFTY",
+        "https://gocharting.com/terminal?ticker=NSE:NIFTY-I",
+        "NSE:NIFTY-I",
+        "NSE:NIFTY-I 5m",
+        {"visual_content_ok": True},
+        footprint_operator_confirmed=True,
+    )
+    assert accepted
+    assert errors == []
+    assert checks["chart_type_confirmation_source"] == "operator_session_confirmation"
