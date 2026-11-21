@@ -22,22 +22,19 @@ IST = ZoneInfo("Asia/Kolkata")
 CAPTURE_DIR = ROOT / "data" / "gocharting_captures"
 PROFILE_DIR = ROOT / "data" / "gocharting_browser_profile"
 
-VISION_PROMPT = """You are IADEW's visual market-structure assistant. Inspect this GoCharting
-chart screenshot, treating it as visual evidence only. The requested chart timeframe
-is 5 minutes. Extract only legible information and explicitly mark unreadable or
-not-visible values as unknown. Do not invent numeric delta, CVD, prices, volume,
-footprint cells, or order-flow values.
+VISION_PROMPT = """IADEW visual extraction. Inspect this chart screenshot only.
+Requested timeframe: 5m. Read only clearly visible values; use "unknown" otherwise.
+Do not infer missing prices, delta, CVD, volume, or footprint cells.
 
-Return concise JSON with these keys:
-instrument_visible, timeframe_visible, chart_type_visible, price_context,
-footprint_observations, imbalance_candidates, absorption_candidates,
-initiative_or_failed_auction, cvd_or_delta_observation, key_levels_visible,
-bullish_evidence, bearish_evidence, missing_or_unreadable, confidence
-(0-1), caveats, conclusion.
-Distinguish a visible footprint imbalance from proof of aggressor-side executions.
-A screenshot cannot establish sequence, causality, queue changes, or confirmed
-absorption. This is research commentary, not a trade instruction. Never output
-a buy/sell order or position size."""
+Return a compact JSON object with:
+instrument, visible_timeframe, chart_type, last_visible_price, visible_ohlc,
+visible_key_levels, footprint_visible, visible_imbalance, possible_absorption,
+visible_delta_or_cvd, bullish_evidence, bearish_evidence, unreadable_items,
+confidence_0_to_1, caveats.
+If the chart is not a footprint chart or not 5m, explicitly say so.
+A screenshot cannot prove aggressor-side executions, event sequence, or absorption.
+Research only; never provide orders, position sizes, or trade instructions.
+Keep every field brief. Do not include a long explanation."""
 
 
 def safe_name(value: str) -> str:
