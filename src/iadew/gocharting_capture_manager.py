@@ -64,7 +64,7 @@ def image_quality(path: Path) -> dict:
 
 
 def validate_capture(symbol: str, page_url: str, page_title: str, visible_text: str,
-                     quality: dict) -> tuple[bool, list[str], dict]:
+                     quality: dict, footprint_operator_confirmed: bool = False) -> tuple[bool, list[str], dict]:
     """Fail-closed identity/timeframe/content checks independent of GLM."""
     problems = []
     expected = ticker_for(symbol, "index" if symbol in {"NIFTY", "BANKNIFTY"} else "stock")
@@ -80,13 +80,15 @@ def validate_capture(symbol: str, page_url: str, page_title: str, visible_text: 
         problems.append("screenshot dimensions/content check failed")
     # GoCharting canvas may not expose chart style in accessible text. Never claim
     # footprint validation based only on colorful pixels; require explicit opt-in.
-    style_confirmed = bool(re.search(r"FOOTPRINT|CLUSTER|BID.?ASK", visible))
+    style_accessible = bool(re.search(r"FOOTPRINT|CLUSTER|BID.?ASK", visible))
+    style_confirmed = style_accessible or footprint_operator_confirmed
     if not style_confirmed:
-        problems.append("footprint chart type not independently confirmed in accessible page text")
+        problems.append("footprint chart type not confirmed by accessible text or one-time operator confirmation")
     return not problems, problems, {
         "instrument_confirmed": not any("instrument" in p for p in problems),
         "timeframe_confirmed": not any("timeframe" in p for p in problems),
         "chart_type_confirmed": style_confirmed,
+        "chart_type_confirmation_source": "accessible_page_text" if style_accessible else ("operator_session_confirmation" if footprint_operator_confirmed else "unconfirmed"),
         "visual_content_ok": bool(quality.get("visual_content_ok")),
     }
 
@@ -176,7 +178,8 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                 pass
             quality = image_quality(image_path)
             accepted, problems, checks = validate_capture(
-                instrument.upper(), page.url, page.title(), visible_text, quality
+                instrument.upper(), page.url, page.title(), visible_text, quality,
+                footprint_operator_confirmed=footprint_operator_confirmed,
             )
             record = build_record(instrument, asset_class, image_path, page.url, page.title())
             record.update({
@@ -186,6 +189,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                 "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
                 "capture_sequence": index,
                 "capture_mode": "single",
+                "footprint_session_confirmation": footprint_operator_confirmed,
             })
             if accepted and analyze:
                 try:
