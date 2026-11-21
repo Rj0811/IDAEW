@@ -231,3 +231,39 @@ else:
     st.dataframe(df.drop(columns=["id"]), use_container_width=True)
     st.subheader("Relative volume vs score")
     st.scatter_chart(df, x="rvol", y="score", color="segment")
+
+
+st.divider()
+st.subheader("GoCharting visual intelligence")
+st.caption("Rendered 5-minute chart captures and optional vision notes. Visual observations are not trade signals.")
+visual_dir = Path(__file__).resolve().parent / "data" / "gocharting_captures"
+if not visual_dir.exists():
+    st.info("No GoCharting captures yet. Run: python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE")
+else:
+    capture_files = sorted(visual_dir.glob("*.json"), reverse=True)
+    if not capture_files:
+        st.info("Capture metadata not found yet. Start the GoCharting visual capture CLI.")
+    else:
+        capture_options = {}
+        for meta_path in capture_files:
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                label = f"{meta.get('captured_at_ist', '')} · {meta.get('instrument', 'UNKNOWN')} · {meta.get('timeframe_requested', '?')}"
+                capture_options[label] = (meta_path, meta)
+            except (OSError, json.JSONDecodeError):
+                continue
+        if capture_options:
+            selected_label = st.selectbox("Captured chart", list(capture_options.keys()), key="visual_capture")
+            meta_path, meta = capture_options[selected_label]
+            image_path = Path(__file__).resolve().parent / meta.get("image_path", "")
+            if image_path.exists():
+                st.image(str(image_path), caption=f"{meta.get('instrument')} · requested {meta.get('timeframe_requested')} · {meta.get('captured_at_ist')}", use_container_width=True)
+            else:
+                st.warning("Screenshot file referenced by metadata is missing.")
+            st.json({k: v for k, v in meta.items() if k not in {"image_path"}})
+            analysis_path = meta.get("analysis_path")
+            if analysis_path:
+                note_path = Path(__file__).resolve().parent / analysis_path
+                if note_path.exists():
+                    st.markdown("**Vision assessment**")
+                    st.markdown(note_path.read_text(encoding="utf-8"))
