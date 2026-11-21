@@ -97,11 +97,18 @@ def ask_nvidia(
 
     body = response.json()
     try:
-        return body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as exc:
+        content = body["choices"][0]["message"].get("content")
+    except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(
-            f"Unexpected NVIDIA NIM response: {json.dumps(body)[:800]}"
+            f"Unexpected NVIDIA NIM response shape: {json.dumps(body)[:1200]}"
         ) from exc
+    if isinstance(content, str) and content.strip():
+        return content
+    raise RuntimeError(
+        "NVIDIA NIM returned no text content. "
+        f"finish_reason={body.get('choices', [{}])[0].get('finish_reason')}; "
+        f"response={json.dumps(body)[:1600]}"
+    )
 
 
 def analyze_image_with_nvidia(
@@ -166,8 +173,15 @@ def analyze_image_with_nvidia(
 
     body = response.json()
     try:
-        return body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as exc:
+        content = body["choices"][0]["message"].get("content")
+    except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(
-            f"Unexpected NVIDIA NIM response: {json.dumps(body)[:800]}"
+            f"Unexpected NVIDIA NIM response shape: {json.dumps(body)[:1200]}"
         ) from exc
+    if isinstance(content, str) and content.strip():
+        return content
+    raise RuntimeError(
+        "NVIDIA NIM returned no text content for the image request. "
+        f"finish_reason={body.get('choices', [{}])[0].get('finish_reason')}; "
+        f"response={json.dumps(body)[:2000]}"
+    )
