@@ -172,3 +172,29 @@ During the session, run `python run_live_feed.py --depth` and verify:
 Do not connect depth metrics to setup scores or trading decisions until the data-quality
 checks and multi-session forward analysis have been reviewed. Track progress in
 [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md).
+
+
+## GoCharting visual intelligence proof of concept
+
+The first browser-based POC captures visible 5-minute GoCharting footprint charts
+for NIFTY, BANKNIFTY and the configured NSE cash watchlist. It uses a dedicated
+local Chromium profile; the user signs in, selects each instrument/layout, and
+confirms each capture. PNGs and metadata are stored locally under
+`data/gocharting_captures/`.
+
+```powershell
+python -m playwright install chromium
+python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE
+```
+
+Optional vision analysis uses the OpenAI API and requires a separately billed
+API key in the local process environment:
+
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+python run_gocharting_visual.py --symbols NIFTY RELIANCE --analyze
+```
+
+See [docs/GOCHARTING_VISUAL_POC.md](docs/GOCHARTING_VISUAL_POC.md) for setup,
+workflow, limitations and security boundaries. This is screenshot-based visual
+research, not a trade/order feed; no order execution is implemented.
