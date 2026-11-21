@@ -42,3 +42,22 @@ The scanner downloads/caches Angel One's official OpenAPIScripMaster JSON, resol
 - WebSocket V2 subscriptions use exchange type 1 for NSE cash and 2 for NFO.
 - Verify current SmartAPI limits, account/API eligibility and session expiry behavior in official documentation before operational use.
 - The current application is research/alert-only and contains no order-placement code.
+
+
+## GoCharting visual intelligence POC
+
+Install Chromium for the separate IADEW browser profile:
+
+    python -m playwright install chromium
+
+Run a small first capture batch:
+
+    python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE
+
+The browser opens GoCharting. Sign in manually, select the 5-minute footprint
+chart for each requested instrument, then press ENTER in the terminal to capture.
+Files are written to `data/gocharting_captures/`.
+
+For optional API-based screenshot analysis, set `OPENAI_API_KEY` in the
+PowerShell process environment and add `--analyze`. API billing is separate
+from ChatGPT subscriptions. Full instructions: [GOCHARTING_VISUAL_POC.md](GOCHARTING_VISUAL_POC.md).
