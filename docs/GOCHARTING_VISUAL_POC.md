@@ -1,92 +1,69 @@
-# GoCharting visual intelligence POC
+# GoCharting automated capture manager
 
-## What v1 does
+## What the current capture manager does
 
-- Opens GoCharting in a dedicated, persistent Chromium profile.
-- Leaves login, instrument search, and chart/layout selection under the user's control.
-- Captures the visible browser viewport for both index and stock instruments.
-- Saves a PNG, JSON metadata sidecar, and the visual-analysis prompt under
-  `data/gocharting_captures/`.
-- Optionally sends the screenshot to the OpenAI Responses API for a constrained
-  visual assessment when `OPENAI_API_KEY` is configured.
+- Launches a dedicated persistent Chromium profile and reuses its GoCharting login.
+- Uses the configured watchlist: NIFTY, BANKNIFTY and `CASH_WATCHLIST`.
+- Asks for one initial operator confirmation after the user has signed in and configured a 5-minute footprint chart. It does not ask for ENTER between instruments.
+- Rotates through symbols using GoCharting's visible terminal URL pattern.
+- Captures one high-resolution viewport image per instrument (1920 × 1200 CSS pixels).
+- Checks instrument identity, visible 5-minute timeframe, image dimensions and basic visual content before analysis.
+- Rejects captures that fail validation; rejected images are never sent to NVIDIA.
+- Writes per-image JSON metadata, SHA-256 hashes and a session manifest.
 
-The default capture universe is NIFTY, BANKNIFTY, and the symbols in
-`CASH_WATCHLIST`. The requested chart interval is 5 minutes. Before each
-capture, the user confirms that the correct symbol and 5-minute footprint layout
-are visible. This human-in-the-loop step avoids relying on undocumented GoCharting
-UI selectors that may change.
+## Important validation boundary
+
+GoCharting renders much of the chart into a canvas. Browser-accessible text does not always expose the selected chart style. The validator therefore fails closed unless it can find a footprint/cluster/bid-ask marker in accessible page text. It does not pretend that a colorful screenshot alone proves the chart is a footprint. If your GoCharting layout does not expose chart type as accessible text, captures will be rejected with a chart-type validation error. Do not bypass this by assuming the screenshot is correct; we should add a platform-specific, independently verified selector after inspecting the actual UI on your machine.
+
+The pixel check is a coarse image-integrity/readability gate, not OCR and not a footprint classifier. A capture accepted by this POC confirms the requested instrument/timeframe and visual-content checks; it does not verify individual footprint values.
 
 ## Install (Windows PowerShell)
 
 ```powershell
+git pull origin main
 pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
 ## Run
 
-Capture default indices + configured stocks:
+Start automated watchlist capture and send only accepted screenshots to NVIDIA:
 
 ```powershell
-python run_gocharting_visual.py
+python run_gocharting_visual.py --analyze
 ```
 
-Capture a smaller first test:
+Test a smaller set first:
+
+```powershell
+python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE --analyze
+```
+
+Capture only, without AI analysis:
 
 ```powershell
 python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE
 ```
 
-Stocks or indices only:
+## One-time session setup
 
-```powershell
-python run_gocharting_visual.py --stocks-only
-python run_gocharting_visual.py --indices-only
-```
+1. Run the command. The dedicated Chromium profile opens GoCharting.
+2. Sign in if needed.
+3. Configure the 5-minute footprint chart layout once. Keep that layout active.
+4. Press ENTER once in the terminal to start the rotation.
+5. The manager navigates each requested instrument, captures one screenshot and validates it before moving on.
+6. Inspect `data/gocharting_captures/*_*.json` and the session `capture_manifest_*.json`. Rejected captures include explicit validation errors.
 
-Optional API-based vision analysis:
+The browser is visible by default. Do not use headless mode for chart capture because chart rendering can differ.
 
-```powershell
-$env:OPENAI_API_KEY = "your-key-in-local-terminal"
-python run_gocharting_visual.py --symbols NIFTY RELIANCE --analyze
-```
+## Current limitations / next hardening step
 
-The API key is read from the process environment and is never written to capture
-metadata. API usage is billed separately under the API account; a ChatGPT plan
-does not automatically provide API credits. The default model can be changed with
-`--model` or `IADEW_VISION_MODEL`.
+- UI navigation and the terminal URL pattern can change; no private GoCharting API or network scraping is used.
+- The chart style may be canvas-only and inaccessible to browser text inspection. In that case, strict validation rejects captures. The next step is to inspect a live page's accessible labels or add a carefully tested UI-state check—not to silently accept an unverified chart.
+- Automatic zoom manipulation is intentionally not enabled yet. The manager uses a large viewport at normal browser zoom rather than zooming out and making footprint cells unreadable.
+- This version captures a single viewport image per instrument, as requested. If a full-session overview and readable cells cannot both fit, a later multi-region mode will be more appropriate.
+- NVIDIA inference can still time out or exhaust its token budget; those failures are recorded separately from capture validation.
 
-## Workflow
+## Safety and data limitations
 
-1. Start the capture command. A dedicated Chromium profile opens at GoCharting.
-2. Sign in yourself if required. The profile is local at
-   `data/gocharting_browser_profile/`; it is excluded from Git.
-3. Set the requested instrument and 5-minute footprint/order-flow layout.
-4. Press ENTER in the terminal to capture. Repeat for the next instrument.
-5. Review the PNG and metadata in `data/gocharting_captures/`.
-6. Without `--analyze`, upload the PNG to ChatGPT and use the companion
-   `*_vision_prompt.txt`. With `--analyze`, read the companion analysis Markdown.
-
-## What the model may and may not claim
-
-The visual assistant reports only what is legible in the screenshot. It can
-describe visible imbalances, possible absorption locations, price context,
-visible CVD/delta labels and important chart levels. It must mark unreadable
-values as unknown and state uncertainty.
-
-A screenshot is not a trade-by-trade feed. It cannot establish the sequence of
-executions, true exchange aggressor flags, order-book additions/cancellations,
-causality, or confirmed absorption. An apparent imbalance/absorption is a visual
-candidate requiring independent validation. This module is observation-only:
-it does not produce orders, position sizes, or autonomous trade entries.
-
-## Browser and security boundaries
-
-- Uses Playwright to launch a separate local Chromium profile; it does not attach
-  to or control the user's everyday Chrome profile.
-- User performs login and chart selection. Do not store passwords, cookies, OTPs,
-  or broker tokens in IADEW files.
-- No GoCharting private endpoints, DOM scraping of market data, or network
-  reverse-engineering is used. Only the rendered viewport is captured.
-- Respect GoCharting's current terms, subscription permissions, and applicable
-  market-data licensing.
+A screenshot is a visual snapshot, not a trade-by-trade feed. It cannot establish true exchange aggressor flags, execution sequence, order-book additions/cancellations, causality or confirmed absorption. The module is observation-only and never places broker orders. Keep credentials in local `.env`; never commit API keys, cookies, OTPs or broker tokens.
