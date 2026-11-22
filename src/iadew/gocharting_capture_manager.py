@@ -63,6 +63,74 @@ def image_quality(path: Path) -> dict:
     }
 
 
+
+def run_ocr(image_path: Path) -> dict:
+    """Read symbol and interval from screenshot pixels, independently of DOM and GLM."""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError as exc:
+        raise RuntimeError("OCR dependency missing. Run: pip install -r requirements.txt") from exc
+    engine = RapidOCR()
+    with Image.open(image_path) as source:
+        image = source.convert("RGB")
+        width, height = image.size
+        # Header crop contains the instrument and interval selectors; full image
+        # additionally catches the chart's own symbol/timeframe labels.
+        header = image.crop((0, 0, width, max(100, int(height * 0.13))))
+        header_result, _ = engine(__import__("numpy").array(header))
+        full_result, _ = engine(__import__("numpy").array(image))
+    def flatten(rows):
+        return " ".join(str(row[1]) for row in (rows or []) if len(row) > 1)
+    return {
+        "header_text": flatten(header_result),
+        "full_text": flatten(full_result),
+    }
+
+
+def validate_ocr(symbol: str, ocr: dict) -> tuple[bool, list[str], dict]:
+    header = re.sub(r"\\s+", "", ocr.get("header_text", "")).upper()
+    full = re.sub(r"\\s+", "", ocr.get("full_text", "")).upper()
+    combined = header + " " + full
+    problems = []
+    aliases = {
+        "NIFTY": ("NSE:NIFTY-I", "NIFTY-I", "NIFTY"),
+        "BANKNIFTY": ("NSE:BANKNIFTY-I", "BANKNIFTY-I", "BANKNIFTY"),
+    }.get(symbol.upper(), (f"NSE:{symbol.upper()}", symbol.upper()))
+    symbol_ok = any(alias in combined for alias in aliases)
+    if not symbol_ok:
+        problems.append(f"OCR could not confirm requested symbol {symbol}")
+    # Prefer the top header crop, where the active timeframe control is shown.
+    timeframe_ok = bool(re.search(r"(?<![A-Z0-9])5M(?![A-Z0-9])", header))
+    if not timeframe_ok:
+        problems.append("OCR could not confirm 5m in screenshot header")
+    return not problems, problems, {
+        "symbol_confirmed_by_ocr": symbol_ok,
+        "timeframe_confirmed_by_ocr": timeframe_ok,
+        "ocr_header_text": ocr.get("header_text", ""),
+    }
+
+
+def apply_chart_view(page, browser_zoom: int = 90, chart_zoom_steps: int = 2) -> None:
+    """Apply browser zoom and chart-wheel zoom before each capture."""
+    # Browser zoom through Chromium's native keyboard shortcut.
+    page.keyboard.press("Control+0")
+    target = max(50, min(125, int(browser_zoom)))
+    presses = round((100 - target) / 10)
+    key = "Control+-" if presses >= 0 else "Control++"
+    for _ in range(abs(presses)):
+        page.keyboard.press(key)
+    page.wait_for_timeout(500)
+    # Wheel over the central plot area; positive delta generally zooms out on
+    # GoCharting/TradingView-style charts. Set 0 to disable if the layout differs.
+    if chart_zoom_steps:
+        box = page.locator("canvas").first.bounding_box()
+        if box:
+            x = box["x"] + box["width"] * 0.55
+            y = box["y"] + box["height"] * 0.55
+            page.mouse.move(x, y)
+            page.mouse.wheel(0, 120 * int(chart_zoom_steps))
+            page.wait_for_timeout(800)
+
 def validate_capture(symbol: str, page_url: str, page_title: str, visible_text: str,
                      quality: dict, footprint_operator_confirmed: bool = False) -> tuple[bool, list[str], dict]:
     """Fail-closed identity/timeframe/content checks independent of GLM."""
@@ -120,7 +188,8 @@ def analyze_with_nvidia(image_path: Path, model: str) -> str:
 
 def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                     analyze: bool = False, model: str = "z-ai/glm-5.3-flash",
-                    auto: bool = True) -> None:
+                    auto: bool = True, browser_zoom: int = 90,
+                    chart_zoom_steps: int = 2) -> None:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -132,7 +201,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR), headless=headless,
-            viewport={"width": 1920, "height": 1200}, device_scale_factor=1,
+            no_viewport=True, args=["--start-maximized"], device_scale_factor=1,
             accept_downloads=False,
         )
         page = context.pages[0] if context.pages else context.new_page()
@@ -152,7 +221,8 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
             except Exception:
                 pass
             page.wait_for_timeout(3500)
-            # Reassert 5m using the visible toolbar when an unambiguous visible control exists.
+            apply_chart_view(page, browser_zoom=browser_zoom, chart_zoom_steps=chart_zoom_steps)
+            # Reassert 5m using the visible toolbar; OCR below independently verifies the screenshot.
             five_minute = page.get_by_text("5m", exact=True)
             try:
                 # Find and click the first visible exact 5m control. GoCharting can
@@ -180,15 +250,24 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
             except Exception:
                 pass
             quality = image_quality(image_path)
+            ocr = run_ocr(image_path)
+            ocr_ok, ocr_problems, ocr_checks = validate_ocr(instrument, ocr)
             accepted, problems, checks = validate_capture(
                 instrument.upper(), page.url, page.title(), visible_text, quality,
                 footprint_operator_confirmed=footprint_operator_confirmed,
             )
+            problems.extend(ocr_problems)
+            accepted = accepted and ocr_ok
+            checks.update(ocr_checks)
             record = build_record(instrument, asset_class, image_path, page.url, page.title())
             record.update({
                 "capture_status": "accepted" if accepted else "rejected",
                 "validation": checks, "validation_errors": problems,
                 "image_quality": quality,
+                "ocr_validation": ocr_checks,
+                "ocr_header_text": ocr.get("header_text", ""),
+                "browser_zoom_percent": browser_zoom,
+                "chart_zoom_steps": chart_zoom_steps,
                 "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
                 "capture_sequence": index,
                 "capture_mode": "single",
@@ -239,6 +318,8 @@ def main() -> None:
     parser.add_argument("--analyze", action="store_true", help="Send accepted captures to NVIDIA NIM.")
     parser.add_argument("--model", default=os.getenv("NVIDIA_MODEL", "z-ai/glm-5.3-flash"))
     parser.add_argument("--headless", action="store_true", help="Not recommended: chart rendering may require a visible browser.")
+    parser.add_argument("--browser-zoom", type=int, default=90, help="Chromium page zoom percentage (50-125; default 90).")
+    parser.add_argument("--chart-zoom-steps", type=int, default=2, help="Wheel zoom-out steps over the chart (0 disables; default 2).")
     args = parser.parse_args()
     universe = default_universe()
     if args.symbols:
@@ -249,7 +330,8 @@ def main() -> None:
         universe = [(s, c) for s, c in universe if c == "index"]
     if not universe:
         parser.error("No instruments selected.")
-    capture_session(universe, headless=args.headless, analyze=args.analyze, model=args.model)
+    capture_session(universe, headless=args.headless, analyze=args.analyze, model=args.model,
+                    browser_zoom=args.browser_zoom, chart_zoom_steps=args.chart_zoom_steps)
 
 
 if __name__ == "__main__":
