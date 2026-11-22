@@ -222,19 +222,34 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                 pass
             page.wait_for_timeout(3500)
             apply_chart_view(page, browser_zoom=browser_zoom, chart_zoom_steps=chart_zoom_steps)
-            # Reassert 5m using the visible toolbar; OCR below independently verifies the screenshot.
+            # Open the interval menu, choose the explicit "5 Minutes" item,
+            # then dismiss the menu before taking the screenshot.
             five_minute = page.get_by_text("5m", exact=True)
+            timeframe_selected = False
             try:
-                # Find and click the first visible exact 5m control. GoCharting can
-                # expose more than one matching label in its toolbar.
                 for candidate in range(min(five_minute.count(), 8)):
                     control = five_minute.nth(candidate)
                     if control.is_visible():
-                        control.click(timeout=2500)
+                        control.click(timeout=3000)
+                        page.wait_for_timeout(500)
+                        break
+                menu_item = page.get_by_text("5 Minutes", exact=True)
+                for candidate in range(min(menu_item.count(), 8)):
+                    option = menu_item.nth(candidate)
+                    if option.is_visible():
+                        option.click(timeout=3000)
+                        timeframe_selected = True
                         page.wait_for_timeout(1200)
                         break
+                # Close any remaining interval popover so it does not obscure
+                # the footprint cells in the saved image.
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(350)
             except Exception:
-                pass
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
             stamp = datetime.now(IST).strftime("%Y%m%d_%H%M%S")
             stem = f"{stamp}_{safe_name(instrument)}_5m"
             image_path = CAPTURE_DIR / f"{stem}.png"
@@ -268,6 +283,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
                 "ocr_header_text": ocr.get("header_text", ""),
                 "browser_zoom_percent": browser_zoom,
                 "chart_zoom_steps": chart_zoom_steps,
+                "timeframe_selection_clicked": timeframe_selected,
                 "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
                 "capture_sequence": index,
                 "capture_mode": "single",
