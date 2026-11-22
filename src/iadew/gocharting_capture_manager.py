@@ -88,7 +88,7 @@ def run_ocr(image_path: Path) -> dict:
 
 
 def validate_ocr(symbol: str, ocr: dict) -> tuple[bool, list[str], dict]:
-    header = re.sub(r"\\s+", "", ocr.get("header_text", "")).upper()
+    header = ocr.get("header_text", "").upper()
     full = re.sub(r"\\s+", "", ocr.get("full_text", "")).upper()
     combined = header + " " + full
     problems = []
