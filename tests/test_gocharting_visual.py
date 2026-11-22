@@ -4,7 +4,7 @@ from src.iadew.gocharting_capture_manager import (
     image_quality,
     safe_name,
     ticker_for,
-    validate_capture,
+    validate_capture,\n    validate_ocr,
 )
 
 
@@ -68,3 +68,24 @@ def test_operator_confirmation_allows_canvas_only_footprint_label():
     assert accepted
     assert errors == []
     assert checks["chart_type_confirmation_source"] == "operator_session_confirmation"
+
+
+
+def test_ocr_requires_matching_symbol_and_5m_header():
+    ok, errors, checks = validate_ocr(
+        "NIFTY",
+        {"header_text": "NSE:NIFTY-I 5m Charts", "full_text": "NSE:NIFTY-I"},
+    )
+    assert ok
+    assert errors == []
+    assert checks["symbol_confirmed_by_ocr"]
+    assert checks["timeframe_confirmed_by_ocr"]
+
+
+def test_ocr_rejects_wrong_symbol_and_30m():
+    ok, errors, checks = validate_ocr(
+        "NIFTY",
+        {"header_text": "NSE:RELIANCE 30m", "full_text": "RELIANCE"},
+    )
+    assert not ok
+    assert len(errors) == 2
