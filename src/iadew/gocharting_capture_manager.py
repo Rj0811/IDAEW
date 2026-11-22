@@ -201,7 +201,7 @@ def capture_session(instruments: list[tuple[str, str]], headless: bool = False,
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR), headless=headless,
-            no_viewport=True, args=["--start-maximized"], device_scale_factor=1,
+            no_viewport=True, args=["--start-maximized"],
             accept_downloads=False,
         )
         page = context.pages[0] if context.pages else context.new_page()
