@@ -6,7 +6,7 @@
 - Uses the configured watchlist: NIFTY, BANKNIFTY and `CASH_WATCHLIST`.
 - Asks for one initial operator confirmation after the user has signed in and configured a 5-minute footprint chart. It does not ask for ENTER between instruments.
 - Rotates through symbols using GoCharting's visible terminal URL pattern.
-- Captures one high-resolution viewport image per instrument (1920 × 1200 CSS pixels).
+- Maximizes Chromium, applies configurable browser zoom (default 90%) and chart-wheel zoom-out (default two steps), then captures one viewport image per instrument.\n- Uses local RapidOCR on screenshot pixels to independently verify the requested symbol and the visible 5m header before analysis.
 - Checks instrument identity, visible 5-minute timeframe, image dimensions and basic visual content before analysis.
 - Rejects captures that fail validation; rejected images are never sent to NVIDIA.
 - Writes per-image JSON metadata, SHA-256 hashes and a session manifest.
@@ -21,7 +21,7 @@ The pixel check is a coarse image-integrity/readability gate, not OCR and not a 
 
 ```powershell
 git pull origin main
-pip install -r requirements.txt
+pip install -r requirements.txt  # includes RapidOCR for local screenshot checks
 python -m playwright install chromium
 ```
 
@@ -57,11 +57,11 @@ python run_gocharting_visual.py --symbols NIFTY BANKNIFTY RELIANCE
 
 The browser is visible by default. Do not use headless mode for chart capture because chart rendering can differ.
 
-## Current limitations / next hardening step
+## Zoom and OCR controls\n\nDefaults: browser zoom 90%, chart zoom-out two wheel steps. Override them with `--browser-zoom 100` or `--chart-zoom-steps 0` if the screen or GoCharting chart responds differently. OCR is local (RapidOCR/ONNX Runtime); no screenshot is sent to a third-party OCR service. It reads the top header crop for the active 5m control and the full screenshot for the instrument label. If OCR cannot confirm both, the image is rejected and not sent to GLM.\n\n## Current limitations / next hardening step
 
 - UI navigation and the terminal URL pattern can change; no private GoCharting API or network scraping is used.
 - The chart style may be canvas-only and inaccessible to browser text inspection. The manager therefore requires one explicit operator confirmation per session that the initial chart is a 5-minute footprint. Instrument, timeframe and image checks still run independently on every capture. This does not prove the chart type remains unchanged after each navigation; it records the operator-confirmed session layout assumption.
-- Automatic zoom manipulation is intentionally not enabled yet. The manager uses a large viewport at normal browser zoom rather than zooming out and making footprint cells unreadable.
+- Browser zoom and chart-wheel zoom are now automated and configurable. Chart-wheel direction/amount may vary with GoCharting UI changes; inspect the first run and set `--chart-zoom-steps 0` to disable wheel zoom if it changes the chart unexpectedly.
 - This version captures a single viewport image per instrument, as requested. If a full-session overview and readable cells cannot both fit, a later multi-region mode will be more appropriate.
 - NVIDIA inference can still time out or exhaust its token budget; those failures are recorded separately from capture validation.
 
